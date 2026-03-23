@@ -1,7 +1,7 @@
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::prelude::{Constraint, Direction, Layout};
-use ratatui::style::Stylize;
-use ratatui::widgets::{Block, Padding};
+use ratatui::style::{Color, Stylize};
+use ratatui::widgets::{Block, List, ListItem, Padding};
 use ratatui::{DefaultTerminal, Frame};
 
 const HORIZONTAL_MARGIN: u16 = 2;
@@ -9,6 +9,12 @@ const VERTICAL_MARGIN: u16 = 1;
 const SPACING: u16 = 1;
 const HORIZONTAL_INPUT_MARGIN: u16 = 2;
 const VERTICAL_INPUT_MARGIN: u16 = 1;
+
+#[derive(Clone)]
+struct Message {
+    role: String,
+    content: String,
+}
 
 enum InputCommand {
     InsertChar(char),
@@ -25,10 +31,10 @@ fn main() -> anyhow::Result<()> {
 
 fn app(terminal: &mut DefaultTerminal) -> std::io::Result<()> {
     let mut input = String::new();
-    let mut messages: Vec<String> = Vec::new();
+    let mut messages: Vec<Message> = Vec::new();
 
     loop {
-        terminal.draw(|frame| render(frame, &input))?;
+        terminal.draw(|frame| render(frame, &input, &messages))?;
 
         if let Some(key) = event::read()?.as_key_press_event() {
             match handle_user_input(key, &input) {
@@ -36,7 +42,10 @@ fn app(terminal: &mut DefaultTerminal) -> std::io::Result<()> {
                 InputCommand::InsertChar(ch) => insert(&mut input, ch),
                 InputCommand::ClearInput => input.clear(),
                 InputCommand::SubmitInput(msg) => {
-                    messages.push(msg);
+                    messages.push(Message {
+                        role: "user".to_string(),
+                        content: msg,
+                    });
                     input.clear();
                 }
                 InputCommand::None => {}
@@ -64,7 +73,7 @@ fn handle_user_input(key: KeyEvent, input: &str) -> InputCommand {
     }
 }
 
-fn render(frame: &mut Frame, input: &str) {
+fn render(frame: &mut Frame, input: &str, messages: &Vec<Message>) {
     let layout = Layout::default()
         .vertical_margin(VERTICAL_MARGIN)
         .horizontal_margin(HORIZONTAL_MARGIN)
@@ -85,7 +94,20 @@ fn render(frame: &mut Frame, input: &str) {
     ));
     let inner = input_block.inner(layout[1]);
 
-    frame.render_widget("hello world", layout[0]);
+    let items: Vec<ListItem> = messages
+        .iter()
+        .map(|msg| {
+            let style = match msg.role.as_str() {
+                "user" => Color::Cyan,
+                "assistant" => Color::Green,
+                _ => Color::White,
+            };
+            ListItem::new(msg.content.as_str()).style(style)
+        })
+        .collect();
+
+    let list = List::new(items);
+    frame.render_widget(list, layout[0]);
     frame.render_widget(input_block, layout[1]);
     frame.render_widget(input, inner);
     frame.render_widget("status", layout[2]);
