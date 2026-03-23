@@ -1,3 +1,4 @@
+use ratatui::prelude::{Constraint, Direction, Layout};
 use ratatui::{DefaultTerminal, Frame};
 
 fn main() -> anyhow::Result<()> {
@@ -15,5 +16,11 @@ fn app(terminal: &mut DefaultTerminal) -> std::io::Result<()> {
 }
 
 fn render(frame: &mut Frame) {
-    frame.render_widget("hello world", frame.area());
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(vec![Constraint::Fill(1), Constraint::Length(5)])
+        .split(frame.area());
+
+    frame.render_widget("hello world", layout[0]);
+    frame.render_widget("what is up", layout[1]);
 }
