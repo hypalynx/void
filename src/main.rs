@@ -1,19 +1,26 @@
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use echo::llm::Message;
+use echo::stream::{StreamEvent, stream_response};
 use ratatui::prelude::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Stylize};
 use ratatui::widgets::{Block, List, ListItem, Padding};
 use ratatui::{DefaultTerminal, Frame};
+use std::sync::mpsc;
+use std::time::Duration;
+use clap::Parser;
 
 const HORIZONTAL_MARGIN: u16 = 2;
 const VERTICAL_MARGIN: u16 = 1;
 const SPACING: u16 = 1;
 const HORIZONTAL_INPUT_MARGIN: u16 = 2;
 const VERTICAL_INPUT_MARGIN: u16 = 1;
+const SPINNER_CHARS: &str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
-#[derive(Clone)]
-struct Message {
-    role: String,
-    content: String,
+#[derive(Parser)]
+#[command(name = "echo")]
+struct Cli {
+    #[arg(short, long, default_value = "7777")]
+    port: u16,
 }
 
 enum InputCommand {
@@ -24,34 +31,86 @@ enum InputCommand {
     None,
 }
 
-fn main() -> anyhow::Result<()> {
-    ratatui::run(app)?;
-    Ok(())
+struct AppState {
+    input: String,
+    messages: Vec<Message>,
+    rx: mpsc::Receiver<StreamEvent>,
+    tx: mpsc::Sender<StreamEvent>,
+    waiting: bool,
+    spinner_idx: usize,
 }
 
-fn app(terminal: &mut DefaultTerminal) -> std::io::Result<()> {
-    let mut input = String::new();
-    let mut messages: Vec<Message> = Vec::new();
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let mut terminal = ratatui::init();
+    let result = app(&mut terminal).await;
+    ratatui::restore();
+    result
+}
+
+async fn app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
+    let (tx, rx) = mpsc::channel();
+
+    let mut state = AppState {
+        input: String::new(),
+        messages: Vec::new(),
+        rx,
+        tx,
+        waiting: false,
+        spinner_idx: 0,
+    };
 
     loop {
-        terminal.draw(|frame| render(frame, &input, &messages))?;
+        terminal.draw(|frame| render(frame, &state))?;
 
-        if let Some(key) = event::read()?.as_key_press_event() {
-            match handle_user_input(key, &input) {
-                InputCommand::Exit => break Ok(()),
-                InputCommand::InsertChar(ch) => insert(&mut input, ch),
-                InputCommand::ClearInput => input.clear(),
+        if event::poll(Duration::from_millis(50))?
+            && let Some(key) = event::read()?.as_key_press_event()
+        {
+            match handle_user_input(key, &state.input) {
+                InputCommand::Exit => break,
+                InputCommand::InsertChar(ch) => insert(&mut state.input, ch),
+                InputCommand::ClearInput => state.input.clear(),
                 InputCommand::SubmitInput(msg) => {
-                    messages.push(Message {
+                    state.messages.push(Message {
                         role: "user".to_string(),
                         content: msg,
+                        thinking: None,
                     });
-                    input.clear();
+                    state.input.clear();
+                    state.waiting = true;
+                    state.spinner_idx = 0;
+
+                    let messages = state.messages.clone();
+                    let tx = state.tx.clone();
+                    tokio::spawn(async move {
+                        let _ = stream_response(messages, tx).await;
+                    });
                 }
                 InputCommand::None => {}
             }
         }
+
+        // Drain tokens from the channel
+        while let Ok(event) = state.rx.try_recv() {
+            match event {
+                StreamEvent::Token(token) => {
+                    if let Some(last) = state.messages.last_mut() {
+                        last.content.push_str(&token);
+                    }
+                }
+                StreamEvent::Done => {
+                    state.waiting = false;
+                }
+            }
+        }
+
+        // Advance spinner
+        if state.waiting {
+            state.spinner_idx = (state.spinner_idx + 1) % SPINNER_CHARS.len();
+        }
     }
+
+    Ok(())
 }
 
 fn handle_user_input(key: KeyEvent, input: &str) -> InputCommand {
@@ -73,7 +132,7 @@ fn handle_user_input(key: KeyEvent, input: &str) -> InputCommand {
     }
 }
 
-fn render(frame: &mut Frame, input: &str, messages: &Vec<Message>) {
+fn render(frame: &mut Frame, state: &AppState) {
     let layout = Layout::default()
         .vertical_margin(VERTICAL_MARGIN)
         .horizontal_margin(HORIZONTAL_MARGIN)
@@ -94,7 +153,8 @@ fn render(frame: &mut Frame, input: &str, messages: &Vec<Message>) {
     ));
     let inner = input_block.inner(layout[1]);
 
-    let items: Vec<ListItem> = messages
+    let items: Vec<ListItem> = state
+        .messages
         .iter()
         .map(|msg| {
             let style = match msg.role.as_str() {
@@ -109,10 +169,18 @@ fn render(frame: &mut Frame, input: &str, messages: &Vec<Message>) {
     let list = List::new(items);
     frame.render_widget(list, layout[0]);
     frame.render_widget(input_block, layout[1]);
-    frame.render_widget(input, inner);
-    frame.render_widget("status", layout[2]);
+    frame.render_widget(state.input.as_str(), inner);
 
-    let cursor_x = inner.x + input.len() as u16;
+    let status = if state.waiting {
+        let spinner_char = SPINNER_CHARS.chars().nth(state.spinner_idx).unwrap_or(' ');
+        format!("{} waiting...", spinner_char)
+    } else {
+        String::new()
+    };
+
+    frame.render_widget(status, layout[2]);
+
+    let cursor_x = inner.x + state.input.len() as u16;
     let cursor_y = inner.y;
     frame.set_cursor_position((cursor_x, cursor_y));
 }
