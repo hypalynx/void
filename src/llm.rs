@@ -1,6 +1,9 @@
 use crate::types::Message;
 
-pub async fn chat_completions(messages: &[Message]) -> anyhow::Result<reqwest::Response> {
+pub async fn chat_completions(
+    port: u16,
+    messages: &[Message],
+) -> anyhow::Result<reqwest::Response> {
     let client = reqwest::Client::new();
 
     let payload = serde_json::json!({
@@ -11,10 +14,11 @@ pub async fn chat_completions(messages: &[Message]) -> anyhow::Result<reqwest::R
         "top_p": 0.95,
         "top_k": 20,
         "prescence_penalty": 0.0,
+        "id_slot": -1,
     });
 
     let response = client
-        .post("http://127.0.0.1:7777/v1/chat/completions")
+        .post(format!("http://127.0.0.1:{}/v1/chat/completions", port))
         .header("Content-Type", "application/json")
         .body(serde_json::to_string(&payload)?)
         .send()

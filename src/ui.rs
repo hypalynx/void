@@ -12,6 +12,10 @@ const HORIZONTAL_INPUT_MARGIN: u16 = 2;
 const VERTICAL_INPUT_MARGIN: u16 = 1;
 pub const SPINNER_CHARS: &str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
+pub fn spinner_len() -> usize {
+    SPINNER_CHARS.chars().count()
+}
+
 pub fn render(frame: &mut Frame, state: &AppState) {
     let layout = Layout::default()
         .vertical_margin(VERTICAL_MARGIN)

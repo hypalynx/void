@@ -11,8 +11,9 @@ pub enum StreamEvent {
 pub async fn stream_response(
     messages: Vec<Message>,
     tx: mpsc::Sender<StreamEvent>,
+    port: u16,
 ) -> anyhow::Result<()> {
-    let response = crate::llm::chat_completions(&messages).await?;
+    let response = crate::llm::chat_completions(port, &messages).await?;
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
 

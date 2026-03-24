@@ -13,6 +13,7 @@ pub struct Message {
 pub struct AppState {
     pub input: String,
     pub messages: Vec<Message>,
+    pub port: u16,
     pub rx: mpsc::Receiver<StreamEvent>,
     pub tx: mpsc::Sender<StreamEvent>,
     pub waiting: bool,

@@ -5,7 +5,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 use void::stream::{StreamEvent, stream_response};
 use void::types::{AppState, Message};
-use void::ui::{SPINNER_CHARS, render};
+use void::ui::{render, spinner_len};
 
 #[derive(Parser)]
 #[command(name = "void")]
@@ -24,18 +24,21 @@ enum InputCommand {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
     let mut terminal = ratatui::init();
-    let result = app(&mut terminal).await;
+    let result = app(&mut terminal, cli.port).await;
     ratatui::restore();
     result
 }
 
-async fn app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
+async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel();
 
     let mut state = AppState {
         input: String::new(),
         messages: Vec::new(),
+        port,
         rx,
         tx,
         waiting: false,
@@ -66,7 +69,7 @@ async fn app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
                     let messages = state.messages.clone();
                     let tx = state.tx.clone();
                     tokio::spawn(async move {
-                        let _ = stream_response(messages, tx).await;
+                        let _ = stream_response(messages, tx, port).await;
                     });
                 }
                 InputCommand::None => {}
@@ -113,7 +116,7 @@ async fn app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
 
         // Advance spinner
         if state.waiting {
-            state.spinner_idx = (state.spinner_idx + 1) % SPINNER_CHARS.len();
+            state.spinner_idx = (state.spinner_idx + 1) % spinner_len();
         }
     }
 
