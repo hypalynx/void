@@ -1,4 +1,4 @@
-use crate::llm::Message;
+use crate::types::Message;
 use futures_util::TryStreamExt;
 use std::sync::mpsc;
 
