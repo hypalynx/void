@@ -1,7 +1,8 @@
+use crate::render::render_message;
 use crate::types::AppState;
 use ratatui::Frame;
 use ratatui::prelude::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Stylize};
+use ratatui::style::{Color, Modifier, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Padding, Paragraph, Wrap};
 
@@ -39,23 +40,43 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 
     let mut lines = Vec::new();
     for msg in &state.messages {
-        let style = match msg.role.as_str() {
+        let role_color = match msg.role.as_str() {
             "user" => Color::Cyan,
             "assistant" => Color::White,
             _ => Color::White,
         };
         if let Some(thinking) = &msg.thinking {
-            for line in thinking.lines() {
-                lines.push(Line::from(Span::styled(line, Color::DarkGray)));
+            for spans in render_message(thinking) {
+                let italic_spans: Vec<Span> = spans
+                    .into_iter()
+                    .map(|s| {
+                        let mut style = s.style.add_modifier(Modifier::ITALIC);
+                        if style.fg.is_none() {
+                            style = style.fg(Color::DarkGray);
+                        }
+                        Span::styled(s.content, style)
+                    })
+                    .collect();
+                lines.push(Line::from(italic_spans));
             }
         }
-        for line in msg.content.lines() {
-            lines.push(Line::from(Span::styled(line, style)));
+        for spans in render_message(&msg.content) {
+            let colored: Vec<Span> = spans
+                .into_iter()
+                .map(|s| {
+                    if s.style.fg.is_none() {
+                        Span::styled(s.content, role_color)
+                    } else {
+                        s
+                    }
+                })
+                .collect();
+            lines.push(Line::from(colored));
         }
         lines.push(Line::from("")); // Blank line between messages
     }
 
-    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
     frame.render_widget(paragraph, layout[0]);
     frame.render_widget(input_block, layout[1]);
     frame.render_widget(state.input.as_str(), inner);
