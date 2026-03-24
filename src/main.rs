@@ -1,3 +1,4 @@
+use clap::Parser;
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use echo::llm::Message;
 use echo::stream::{StreamEvent, stream_response};
@@ -7,7 +8,6 @@ use ratatui::widgets::{Block, List, ListItem, Padding};
 use ratatui::{DefaultTerminal, Frame};
 use std::sync::mpsc;
 use std::time::Duration;
-use clap::Parser;
 
 const HORIZONTAL_MARGIN: u16 = 2;
 const VERTICAL_MARGIN: u16 = 1;
@@ -38,6 +38,7 @@ struct AppState {
     tx: mpsc::Sender<StreamEvent>,
     waiting: bool,
     spinner_idx: usize,
+    current_stream_message_idx: Option<usize>,
 }
 
 #[tokio::main]
@@ -58,6 +59,7 @@ async fn app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
         tx,
         waiting: false,
         spinner_idx: 0,
+        current_stream_message_idx: None,
     };
 
     loop {
@@ -94,12 +96,21 @@ async fn app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
         while let Ok(event) = state.rx.try_recv() {
             match event {
                 StreamEvent::Token(token) => {
-                    if let Some(last) = state.messages.last_mut() {
-                        last.content.push_str(&token);
+                    if state.current_stream_message_idx.is_none() {
+                        state.messages.push(Message {
+                            role: "assistant".to_string(),
+                            content: String::new(),
+                            thinking: None,
+                        });
+                        state.current_stream_message_idx = Some(state.messages.len() - 1);
+                    }
+                    if let Some(idx) = state.current_stream_message_idx {
+                        state.messages[idx].content.push_str(&token);
                     }
                 }
                 StreamEvent::Done => {
                     state.waiting = false;
+                    state.current_stream_message_idx = None;
                 }
             }
         }
