@@ -4,7 +4,8 @@ use echo::llm::Message;
 use echo::stream::{StreamEvent, stream_response};
 use ratatui::prelude::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Stylize};
-use ratatui::widgets::{Block, List, ListItem, Padding};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Padding, Paragraph, Wrap};
 use ratatui::{DefaultTerminal, Frame};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -108,6 +109,21 @@ async fn app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
                         state.messages[idx].content.push_str(&token);
                     }
                 }
+                StreamEvent::Thinking(thinking) => {
+                    if state.current_stream_message_idx.is_none() {
+                        state.messages.push(Message {
+                            role: "assistant".to_string(),
+                            content: String::new(),
+                            thinking: Some(String::new()),
+                        });
+                        state.current_stream_message_idx = Some(state.messages.len() - 1);
+                    }
+                    if let Some(idx) = state.current_stream_message_idx {
+                        if let Some(ref mut t) = state.messages[idx].thinking {
+                            t.push_str(&thinking);
+                        }
+                    }
+                }
                 StreamEvent::Done => {
                     state.waiting = false;
                     state.current_stream_message_idx = None;
@@ -164,21 +180,26 @@ fn render(frame: &mut Frame, state: &AppState) {
     ));
     let inner = input_block.inner(layout[1]);
 
-    let items: Vec<ListItem> = state
-        .messages
-        .iter()
-        .map(|msg| {
-            let style = match msg.role.as_str() {
-                "user" => Color::Cyan,
-                "assistant" => Color::Green,
-                _ => Color::White,
-            };
-            ListItem::new(msg.content.as_str()).style(style)
-        })
-        .collect();
+    let mut lines = Vec::new();
+    for msg in &state.messages {
+        let style = match msg.role.as_str() {
+            "user" => Color::Cyan,
+            "assistant" => Color::White,
+            _ => Color::White,
+        };
+        if let Some(thinking) = &msg.thinking {
+            for line in thinking.lines() {
+                lines.push(Line::from(Span::styled(line, Color::DarkGray)));
+            }
+        }
+        for line in msg.content.lines() {
+            lines.push(Line::from(Span::styled(line, style)));
+        }
+        lines.push(Line::from("")); // Blank line between messages
+    }
 
-    let list = List::new(items);
-    frame.render_widget(list, layout[0]);
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
+    frame.render_widget(paragraph, layout[0]);
     frame.render_widget(input_block, layout[1]);
     frame.render_widget(state.input.as_str(), inner);
 

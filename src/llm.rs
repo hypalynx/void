@@ -16,6 +16,9 @@ pub async fn chat_completions(messages: &[Message]) -> anyhow::Result<reqwest::R
         "messages": messages,
         "stream": true,
         "temperature": 0.7,
+        "top_p": 0.95,
+        "top_k": 20,
+        "prescence_penalty": 0.0,
     });
 
     let response = client
