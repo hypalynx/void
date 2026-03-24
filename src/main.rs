@@ -1,7 +1,7 @@
 use clap::Parser;
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use echo::llm::Message;
-use echo::stream::{StreamEvent, stream_response};
+use void::llm::Message;
+use void::stream::{StreamEvent, stream_response};
 use ratatui::prelude::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Stylize};
 use ratatui::text::{Line, Span};
@@ -18,7 +18,7 @@ const VERTICAL_INPUT_MARGIN: u16 = 1;
 const SPINNER_CHARS: &str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
 #[derive(Parser)]
-#[command(name = "echo")]
+#[command(name = "void")]
 struct Cli {
     #[arg(short, long, default_value = "7777")]
     port: u16,
