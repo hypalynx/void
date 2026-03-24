@@ -1,7 +1,5 @@
 use clap::Parser;
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use void::llm::Message;
-use void::stream::{StreamEvent, stream_response};
 use ratatui::prelude::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Stylize};
 use ratatui::text::{Line, Span};
@@ -9,6 +7,8 @@ use ratatui::widgets::{Block, Padding, Paragraph, Wrap};
 use ratatui::{DefaultTerminal, Frame};
 use std::sync::mpsc;
 use std::time::Duration;
+use void::llm::Message;
+use void::stream::{StreamEvent, stream_response};
 
 const HORIZONTAL_MARGIN: u16 = 2;
 const VERTICAL_MARGIN: u16 = 1;
@@ -71,7 +71,7 @@ async fn app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
         {
             match handle_user_input(key, &state.input) {
                 InputCommand::Exit => break,
-                InputCommand::InsertChar(ch) => insert(&mut state.input, ch),
+                InputCommand::InsertChar(ch) => state.input.push(ch),
                 InputCommand::ClearInput => state.input.clear(),
                 InputCommand::SubmitInput(msg) => {
                     state.messages.push(Message {
@@ -215,8 +215,4 @@ fn render(frame: &mut Frame, state: &AppState) {
     let cursor_x = inner.x + state.input.len() as u16;
     let cursor_y = inner.y;
     frame.set_cursor_position((cursor_x, cursor_y));
-}
-
-fn insert(input: &mut String, ch: char) {
-    input.push(ch);
 }
