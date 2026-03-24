@@ -69,7 +69,7 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 
     frame.render_widget(status, layout[2]);
 
-    let cursor_x = inner.x + state.input.len() as u16;
+    let cursor_x = inner.x + state.cursor as u16;
     let cursor_y = inner.y;
     frame.set_cursor_position((cursor_x, cursor_y));
 }

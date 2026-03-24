@@ -12,6 +12,8 @@ pub struct Message {
 
 pub struct AppState {
     pub input: String,
+    pub cursor: usize,
+    pub clipboard: String,
     pub messages: Vec<Message>,
     pub port: u16,
     pub rx: mpsc::Receiver<StreamEvent>,

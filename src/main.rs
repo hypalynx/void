@@ -3,7 +3,11 @@ use crossterm::event;
 use ratatui::DefaultTerminal;
 use std::sync::mpsc;
 use std::time::Duration;
-use void::input::{Command, handle_user_input};
+use void::input::{
+    Command, handle_user_input, delete_backward_char, delete_forward_char, move_backward_char,
+    move_forward_char, move_backward_word, move_forward_word, move_start_of_line,
+    move_end_of_line, kill_backward_word, kill_backward_line, yank,
+};
 use void::stream::{StreamEvent, stream_response};
 use void::types::{AppState, Message};
 use void::ui::{render, spinner_len};
@@ -30,6 +34,8 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
 
     let mut state = AppState {
         input: String::new(),
+        cursor: 0,
+        clipboard: String::new(),
         messages: Vec::new(),
         port,
         rx,
@@ -47,8 +53,49 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
         {
             match handle_user_input(key, &state.input) {
                 Command::Exit => break,
-                Command::InsertChar(ch) => state.input.push(ch),
-                Command::ClearInput => state.input.clear(),
+                Command::InsertChar(ch) => {
+                    state.input.insert(state.cursor, ch);
+                    state.cursor += 1;
+                }
+                Command::ClearInput => {
+                    state.input.clear();
+                    state.cursor = 0;
+                }
+                Command::DeleteBackwardChar => {
+                    (state.input, state.cursor) = delete_backward_char(&state.input, state.cursor);
+                }
+                Command::DeleteForwardChar => {
+                    (state.input, state.cursor) = delete_forward_char(&state.input, state.cursor);
+                }
+                Command::MoveBackwardChar => {
+                    state.cursor = move_backward_char(state.cursor);
+                }
+                Command::MoveForwardChar => {
+                    state.cursor = move_forward_char(&state.input, state.cursor);
+                }
+                Command::MoveBackwardWord => {
+                    state.cursor = move_backward_word(&state.input, state.cursor);
+                }
+                Command::MoveForwardWord => {
+                    state.cursor = move_forward_word(&state.input, state.cursor);
+                }
+                Command::MoveStartOfLine => {
+                    state.cursor = move_start_of_line();
+                }
+                Command::MoveEndOfLine => {
+                    state.cursor = move_end_of_line(&state.input);
+                }
+                Command::KillBackwardWord => {
+                    (state.input, state.cursor) = kill_backward_word(&state.input, state.cursor);
+                }
+                Command::KillBackwardLine => {
+                    (state.input, state.cursor, state.clipboard) =
+                        kill_backward_line(&state.input, state.cursor);
+                }
+                Command::Yank => {
+                    (state.input, state.cursor) =
+                        yank(&state.input, state.cursor, &state.clipboard.clone());
+                }
                 Command::SubmitInput(msg) => {
                     state.messages.push(Message {
                         role: "user".to_string(),
@@ -56,6 +103,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                         thinking: None,
                     });
                     state.input.clear();
+                    state.cursor = 0;
                     state.waiting = true;
                     state.spinner_idx = 0;
 
