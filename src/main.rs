@@ -1,8 +1,9 @@
 use clap::Parser;
-use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event;
 use ratatui::DefaultTerminal;
 use std::sync::mpsc;
 use std::time::Duration;
+use void::input::{Command, handle_user_input};
 use void::stream::{StreamEvent, stream_response};
 use void::types::{AppState, Message};
 use void::ui::{render, spinner_len};
@@ -12,14 +13,6 @@ use void::ui::{render, spinner_len};
 struct Cli {
     #[arg(short, long, default_value = "7777")]
     port: u16,
-}
-
-enum InputCommand {
-    InsertChar(char),
-    ClearInput,
-    SubmitInput(String),
-    Exit,
-    None,
 }
 
 #[tokio::main]
@@ -53,10 +46,10 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
             && let Some(key) = event::read()?.as_key_press_event()
         {
             match handle_user_input(key, &state.input) {
-                InputCommand::Exit => break,
-                InputCommand::InsertChar(ch) => state.input.push(ch),
-                InputCommand::ClearInput => state.input.clear(),
-                InputCommand::SubmitInput(msg) => {
+                Command::Exit => break,
+                Command::InsertChar(ch) => state.input.push(ch),
+                Command::ClearInput => state.input.clear(),
+                Command::SubmitInput(msg) => {
                     state.messages.push(Message {
                         role: "user".to_string(),
                         content: msg,
@@ -72,7 +65,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                         let _ = stream_response(messages, tx, port).await;
                     });
                 }
-                InputCommand::None => {}
+                Command::None => {}
             }
         }
 
@@ -121,23 +114,4 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn handle_user_input(key: KeyEvent, input: &str) -> InputCommand {
-    if key.kind == KeyEventKind::Press {
-        match key.code {
-            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                InputCommand::ClearInput
-            }
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                InputCommand::Exit
-            }
-            KeyCode::Char(to_insert) => InputCommand::InsertChar(to_insert),
-            KeyCode::Enter => InputCommand::SubmitInput(input.to_string()),
-            KeyCode::Esc => InputCommand::Exit,
-            _ => InputCommand::None,
-        }
-    } else {
-        InputCommand::None
-    }
 }
