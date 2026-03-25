@@ -17,7 +17,7 @@ pub fn spinner_len() -> usize {
     SPINNER_CHARS.chars().count()
 }
 
-pub fn render(frame: &mut Frame, state: &AppState) {
+pub fn render(frame: &mut Frame, state: &mut AppState) {
     let layout = Layout::default()
         .vertical_margin(VERTICAL_MARGIN)
         .horizontal_margin(HORIZONTAL_MARGIN)
@@ -37,6 +37,10 @@ pub fn render(frame: &mut Frame, state: &AppState) {
         VERTICAL_INPUT_MARGIN,
     ));
     let inner = input_block.inner(layout[1]);
+
+    // Compute geometry for scrolling
+    let area_width = layout[0].width.max(1) as usize;
+    state.msg_area_height = layout[0].height;
 
     let mut lines = Vec::new();
     for msg in &state.messages {
@@ -76,7 +80,16 @@ pub fn render(frame: &mut Frame, state: &AppState) {
         lines.push(Line::from("")); // Blank line between messages
     }
 
-    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    // Compute total rendered lines after word wrapping
+    state.total_rendered_lines = lines
+        .iter()
+        .map(|line| {
+            let char_len: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+            (char_len.max(1) + area_width - 1) / area_width
+        })
+        .sum();
+
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false }).scroll((state.scroll_offset, 0));
     frame.render_widget(paragraph, layout[0]);
     frame.render_widget(input_block, layout[1]);
     frame.render_widget(state.input.as_str(), inner);
