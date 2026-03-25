@@ -17,6 +17,10 @@ explore emergent possibilities through a clean command-line interface.
 - user input history
 - switching URLs/models (and make it configurable?) and test out
   GLM 5 + Kimi K2
+- Ctrl + J for input (newline) and expanding input box, also
+  up/down arrow to move up/down input BUT at top/bottom instead
+  goes up/down user input history.
+- parse/render tables!
 
 ---
 
