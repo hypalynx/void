@@ -7,8 +7,6 @@ explore emergent possibilities through a clean command-line interface.
 
 ## TODO
 
-- add scrollbar for the message buffer/area of the UI (and make
-  mouse scroll/trackpad scroll)
 - if scrolled at the bottom of the message area, track the bottom
   as new output is streamed
 - tool calls: read/write/edit/bash/grep/glob

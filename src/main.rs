@@ -6,13 +6,13 @@ use std::io;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use void::input::{
-    Command, handle_user_input, delete_backward_char, delete_forward_char, move_backward_char,
-    move_forward_char, move_backward_word, move_forward_word, move_start_of_line,
-    move_end_of_line, kill_backward_word, kill_backward_line, yank,
+    Command, delete_backward_char, delete_forward_char, handle_user_input, kill_backward_line,
+    kill_backward_word, move_backward_char, move_backward_word, move_end_of_line,
+    move_forward_char, move_forward_word, move_start_of_line, yank,
 };
 use void::stream::{StreamEvent, stream_response};
 use void::types::{AppState, Message};
-use void::ui::{render, spinner_len};
+use void::ui::{draw, spinner_len};
 
 #[derive(Parser)]
 #[command(name = "void")]
@@ -47,7 +47,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
         waiting: false,
         spinner_idx: 0,
         current_stream_message_idx: None,
-        last_render_ms: 0.0,
+        last_draw_ms: 0.0,
         fps: 0.0,
         scroll_offset: 0,
         target_scroll_offset: 0,
@@ -69,9 +69,9 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
             state.scroll_offset = ((state.scroll_offset as i32) + delta).max(0) as u16;
         }
 
-        let render_start = Instant::now();
-        terminal.draw(|frame| render(frame, &mut state))?;
-        state.last_render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
+        let draw_start = Instant::now();
+        terminal.draw(|frame| draw(frame, &mut state))?;
+        state.last_draw_ms = draw_start.elapsed().as_secs_f64() * 1000.0;
 
         // Non-blocking input check
         if event::poll(Duration::ZERO)? {
@@ -88,10 +88,12 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                             state.cursor = 0;
                         }
                         Command::DeleteBackwardChar => {
-                            (state.input, state.cursor) = delete_backward_char(&state.input, state.cursor);
+                            (state.input, state.cursor) =
+                                delete_backward_char(&state.input, state.cursor);
                         }
                         Command::DeleteForwardChar => {
-                            (state.input, state.cursor) = delete_forward_char(&state.input, state.cursor);
+                            (state.input, state.cursor) =
+                                delete_forward_char(&state.input, state.cursor);
                         }
                         Command::MoveBackwardChar => {
                             state.cursor = move_backward_char(state.cursor);
@@ -112,7 +114,8 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                             state.cursor = move_end_of_line(&state.input);
                         }
                         Command::KillBackwardWord => {
-                            (state.input, state.cursor) = kill_backward_word(&state.input, state.cursor);
+                            (state.input, state.cursor) =
+                                kill_backward_word(&state.input, state.cursor);
                         }
                         Command::KillBackwardLine => {
                             (state.input, state.cursor, state.clipboard) =
@@ -147,15 +150,19 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                         state.target_scroll_offset = state.target_scroll_offset.saturating_sub(3);
                     }
                     MouseEventKind::ScrollDown => {
-                        let max = state.total_rendered_lines
-                            .saturating_sub(state.msg_area_height as usize) as u16;
+                        let max = state
+                            .total_rendered_lines
+                            .saturating_sub(state.msg_area_height as usize)
+                            as u16;
                         state.target_scroll_offset = (state.target_scroll_offset + 3).min(max);
                     }
                     _ => {}
                 },
                 Event::Resize(_, _) => {
-                    let max = state.total_rendered_lines
-                        .saturating_sub(state.msg_area_height as usize) as u16;
+                    let max = state
+                        .total_rendered_lines
+                        .saturating_sub(state.msg_area_height as usize)
+                        as u16;
                     state.target_scroll_offset = state.target_scroll_offset.min(max);
                     state.scroll_offset = state.scroll_offset.min(max);
                 }

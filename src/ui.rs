@@ -17,7 +17,7 @@ pub fn spinner_len() -> usize {
     SPINNER_CHARS.chars().count()
 }
 
-pub fn render(frame: &mut Frame, state: &mut AppState) {
+pub fn draw(frame: &mut Frame, state: &mut AppState) {
     let layout = Layout::default()
         .vertical_margin(VERTICAL_MARGIN)
         .horizontal_margin(HORIZONTAL_MARGIN)
@@ -89,7 +89,9 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
         })
         .sum();
 
-    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false }).scroll((state.scroll_offset, 0));
+    let paragraph = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .scroll((state.scroll_offset, 0));
     frame.render_widget(paragraph, layout[0]);
     frame.render_widget(input_block, layout[1]);
     frame.render_widget(state.input.as_str(), inner);
@@ -102,7 +104,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
         String::new()
     };
 
-    let metrics = format!("{:.1}ms {:.0}fps", state.last_render_ms, state.fps);
+    let metrics = format!("{:.1}ms {:.0}fps", state.last_draw_ms, state.fps);
 
     // Create a full-width status line with left and right content
     let status_area = layout[2];
