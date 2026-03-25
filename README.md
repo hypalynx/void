@@ -21,6 +21,10 @@ explore emergent possibilities through a clean command-line interface.
   up/down arrow to move up/down input BUT at top/bottom instead
   goes up/down user input history.
 - parse/render tables!
+- Esc/Ctrl + C should warn if LLM is responding and pressing
+  again should close the connection/stop receiving the request..
+  if no LLM responding then exits as usual.
+- allow config of LLMs/urls/api keys etc + switching
 
 ---
 
