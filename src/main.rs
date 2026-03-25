@@ -50,6 +50,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
         last_render_ms: 0.0,
         fps: 0.0,
         scroll_offset: 0,
+        target_scroll_offset: 0,
         total_rendered_lines: 0,
         msg_area_height: 0,
     };
@@ -60,6 +61,13 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
 
     loop {
         interval.tick().await;
+
+        // Smooth scroll animation: interpolate toward target
+        let diff = (state.target_scroll_offset as i32) - (state.scroll_offset as i32);
+        if diff != 0 {
+            let delta = (diff as f64 * 0.25).round() as i32;
+            state.scroll_offset = ((state.scroll_offset as i32) + delta).max(0) as u16;
+        }
 
         let render_start = Instant::now();
         terminal.draw(|frame| render(frame, &mut state))?;
@@ -136,18 +144,19 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                 }
                 Event::Mouse(mouse) => match mouse.kind {
                     MouseEventKind::ScrollUp => {
-                        state.scroll_offset = state.scroll_offset.saturating_sub(3);
+                        state.target_scroll_offset = state.target_scroll_offset.saturating_sub(3);
                     }
                     MouseEventKind::ScrollDown => {
                         let max = state.total_rendered_lines
                             .saturating_sub(state.msg_area_height as usize) as u16;
-                        state.scroll_offset = (state.scroll_offset + 3).min(max);
+                        state.target_scroll_offset = (state.target_scroll_offset + 3).min(max);
                     }
                     _ => {}
                 },
                 Event::Resize(_, _) => {
                     let max = state.total_rendered_lines
                         .saturating_sub(state.msg_area_height as usize) as u16;
+                    state.target_scroll_offset = state.target_scroll_offset.min(max);
                     state.scroll_offset = state.scroll_offset.min(max);
                 }
                 _ => {}

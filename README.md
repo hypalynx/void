@@ -25,6 +25,7 @@ explore emergent possibilities through a clean command-line interface.
   again should close the connection/stop receiving the request..
   if no LLM responding then exits as usual.
 - allow config of LLMs/urls/api keys etc + switching
+- draw just the lines that can be seen to keep consistent 60 fps
 
 ---
 

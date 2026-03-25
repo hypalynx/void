@@ -24,6 +24,7 @@ pub struct AppState {
     pub last_render_ms: f64,
     pub fps: f64,
     pub scroll_offset: u16,
+    pub target_scroll_offset: u16,
     pub total_rendered_lines: usize,
     pub msg_area_height: u16,
 }
