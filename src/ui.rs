@@ -81,14 +81,29 @@ pub fn render(frame: &mut Frame, state: &AppState) {
     frame.render_widget(input_block, layout[1]);
     frame.render_widget(state.input.as_str(), inner);
 
-    let status = if state.waiting {
+    // Build status line with metrics on the right
+    let status_left = if state.waiting {
         let spinner_char = SPINNER_CHARS.chars().nth(state.spinner_idx).unwrap_or(' ');
         format!("{} waiting...", spinner_char)
     } else {
         String::new()
     };
 
-    frame.render_widget(status, layout[2]);
+    let metrics = format!("{:.1}ms {:.0}fps", state.last_render_ms, state.fps);
+
+    // Create a full-width status line with left and right content
+    let status_area = layout[2];
+    let full_width = status_area.width as usize;
+    let metrics_width = metrics.len();
+    let left_width = full_width.saturating_sub(metrics_width + 1);
+
+    let mut status_line = status_left.clone();
+    if status_line.len() < left_width {
+        status_line.push_str(&" ".repeat(left_width - status_line.len()));
+    }
+    status_line.push_str(&metrics);
+
+    frame.render_widget(status_line, layout[2]);
 
     let cursor_x = inner.x + state.cursor as u16;
     let cursor_y = inner.y;

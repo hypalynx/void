@@ -2,7 +2,7 @@ use clap::Parser;
 use crossterm::event;
 use ratatui::DefaultTerminal;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use void::input::{
     Command, handle_user_input, delete_backward_char, delete_forward_char, move_backward_char,
     move_forward_char, move_backward_word, move_forward_word, move_start_of_line,
@@ -43,12 +43,23 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
         waiting: false,
         spinner_idx: 0,
         current_stream_message_idx: None,
+        last_render_ms: 0.0,
+        fps: 0.0,
     };
 
-    loop {
-        terminal.draw(|frame| render(frame, &state))?;
+    let mut frame_count = 0;
+    let mut last_fps_time = Instant::now();
+    let mut interval = tokio::time::interval(Duration::from_millis(16)); // ~60 FPS
 
-        if event::poll(Duration::from_millis(50))?
+    loop {
+        interval.tick().await;
+
+        let render_start = Instant::now();
+        terminal.draw(|frame| render(frame, &state))?;
+        state.last_render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
+
+        // Non-blocking input check
+        if event::poll(Duration::ZERO)?
             && let Some(key) = event::read()?.as_key_press_event()
         {
             match handle_user_input(key, &state.input) {
@@ -155,9 +166,19 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
             }
         }
 
-        // Advance spinner
+        // Advance spinner every other frame
         if state.waiting {
-            state.spinner_idx = (state.spinner_idx + 1) % spinner_len();
+            if frame_count % 2 == 0 {
+                state.spinner_idx = (state.spinner_idx + 1) % spinner_len();
+            }
+        }
+
+        frame_count += 1;
+        let now = Instant::now();
+        if now.duration_since(last_fps_time).as_secs() >= 1 {
+            state.fps = frame_count as f64 / now.duration_since(last_fps_time).as_secs_f64();
+            frame_count = 0;
+            last_fps_time = now;
         }
     }
 

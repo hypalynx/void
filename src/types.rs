@@ -21,4 +21,6 @@ pub struct AppState {
     pub waiting: bool,
     pub spinner_idx: usize,
     pub current_stream_message_idx: Option<usize>,
+    pub last_render_ms: f64,
+    pub fps: f64,
 }
