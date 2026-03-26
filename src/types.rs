@@ -149,6 +149,7 @@ pub struct AppState {
     pub host: String,
     pub model: Option<String>,
     pub api_key: Option<String>,
+    pub path_prefix: Option<String>,
     pub rx: mpsc::Receiver<StreamEvent>,
     pub tx: mpsc::Sender<StreamEvent>,
     pub waiting: bool,

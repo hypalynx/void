@@ -19,5 +19,12 @@ lint\:fix:
 	cargo fmt
 	cargo clippy --fix --allow-dirty
 
+kimi:
+	VOID_API_KEY=$${FIREWORKS_API_KEY} cargo run -- \
+		--host api.fireworks.ai \
+		--port 443 \
+		--model accounts/fireworks/models/kimi-k2p5 \
+		--path-prefix /inference
+
 install:
 	cargo install --path .

@@ -29,6 +29,8 @@ struct Cli {
     model: Option<String>,
     #[arg(long)]
     api_key: Option<String>,
+    #[arg(long)]
+    path_prefix: Option<String>,
 }
 
 #[tokio::main]
@@ -46,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
         cli.host.unwrap_or_else(|| "127.0.0.1".to_string()),
         cli.model,
         api_key,
+        cli.path_prefix,
     )
     .await;
     execute!(io::stdout(), crossterm::event::DisableMouseCapture)?;
@@ -107,6 +110,7 @@ async fn app(
     host: String,
     model: Option<String>,
     api_key: Option<String>,
+    path_prefix: Option<String>,
 ) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel();
 
@@ -122,6 +126,7 @@ async fn app(
         host,
         model,
         api_key,
+        path_prefix,
         rx,
         tx,
         waiting: false,
@@ -272,8 +277,9 @@ async fn app(
                             let host = state.host.clone();
                             let model = state.model.clone();
                             let api_key = state.api_key.clone();
+                            let path_prefix = state.path_prefix.clone();
                             tokio::spawn(async move {
-                                let _ = stream_response(api_log, tx, port, host, model, api_key).await;
+                                let _ = stream_response(api_log, tx, port, host, model, api_key, path_prefix).await;
                             });
                         }
                         Command::ToggleToolDetail => {
@@ -535,8 +541,9 @@ async fn app(
                     let host = state.host.clone();
                     let model = state.model.clone();
                     let api_key = state.api_key.clone();
+                    let path_prefix = state.path_prefix.clone();
                     tokio::spawn(async move {
-                        let _ = stream_response(api_log, tx, port, host, model, api_key).await;
+                        let _ = stream_response(api_log, tx, port, host, model, api_key, path_prefix).await;
                     });
 
                     state.waiting = true;

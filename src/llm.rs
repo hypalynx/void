@@ -5,6 +5,7 @@ pub async fn chat_completions(
     host: String,
     model: Option<String>,
     api_key: Option<String>,
+    path_prefix: Option<String>,
     messages: &[ApiMessage],
 ) -> anyhow::Result<reqwest::Response> {
     let client = reqwest::Client::new();
@@ -25,7 +26,17 @@ pub async fn chat_completions(
         payload["model"] = serde_json::Value::String(m);
     }
 
-    let url = format!("http://{}:{}/v1/chat/completions", host, port);
+    // Use HTTPS for port 443, HTTP otherwise
+    let protocol = if port == 443 { "https" } else { "http" };
+
+    // Build path with optional prefix
+    let path = if let Some(prefix) = path_prefix {
+        format!("{}/v1/chat/completions", prefix)
+    } else {
+        "/v1/chat/completions".to_string()
+    };
+
+    let url = format!("{}://{}:{}{}", protocol, host, port, path);
     let mut request = client
         .post(&url)
         .header("Content-Type", "application/json");
