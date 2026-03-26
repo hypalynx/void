@@ -197,3 +197,89 @@ pub fn render_message(text: &str) -> Vec<Vec<Span<'static>>> {
 
     result
 }
+
+/// Render a file diff with line numbers, +/- markers, and syntax highlighting
+pub fn render_diff(diff: &crate::types::FileDiff) -> Vec<Vec<Span<'static>>> {
+    use crate::types::DiffLineKind;
+
+    let mut result = Vec::new();
+    let syntax_set = get_syntax_set();
+    let theme_set = get_theme_set();
+    let theme = theme_set
+        .themes
+        .get("base16-ocean.dark")
+        .unwrap_or_else(|| {
+            theme_set
+                .themes
+                .values()
+                .next()
+                .expect("at least one theme")
+        });
+
+    // Detect syntax from file extension, fallback to plaintext
+    let syntax = syntax_set
+        .find_syntax_for_file(&diff.path)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| syntax_set.find_syntax_plain_text());
+
+    let mut highlighter = syntect::easy::HighlightLines::new(syntax, theme);
+
+    for (hunk_idx, hunk) in diff.hunks.iter().enumerate() {
+        // Add hunk separator if not the first hunk
+        if hunk_idx > 0 {
+            result.push(vec![Span::styled(
+                "~~~ (hunk separator) ~~~".to_string(),
+                Style::default().fg(Color::DarkGray),
+            )]);
+        }
+
+        for line in &hunk.lines {
+            let lineno_str = format!("{:>4}", line.lineno);
+            let lineno_span = Span::styled(lineno_str, Style::default().fg(Color::DarkGray));
+
+            // Marker span: + (green), - (red), or space (default)
+            let marker_span = match line.kind {
+                DiffLineKind::Added => {
+                    Span::styled("+".to_string(), Style::default().fg(Color::Green))
+                }
+                DiffLineKind::Removed => Span::styled("-".to_string(), Style::default().fg(Color::Red)),
+                DiffLineKind::Context => Span::raw(" "),
+            };
+
+            // Syntax highlight the content
+            let ranges = highlighter
+                .highlight_line(&line.content, syntax_set)
+                .unwrap_or_default();
+
+            let mut content_spans: Vec<Span> = ranges
+                .iter()
+                .map(|(style, text)| {
+                    let fg_color = Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
+
+                    // For added/removed lines, override the color with green/red
+                    let final_color = match line.kind {
+                        DiffLineKind::Added => Color::Green,
+                        DiffLineKind::Removed => Color::Red,
+                        DiffLineKind::Context => fg_color,
+                    };
+
+                    Span::styled(text.to_string(), Style::default().fg(final_color))
+                })
+                .collect();
+
+            // If no spans (empty line), add a placeholder
+            if content_spans.is_empty() {
+                content_spans.push(Span::raw(""));
+            }
+
+            // Build final line: [lineno] [marker] [content...]
+            let mut line_spans = vec![lineno_span, Span::raw(" "), marker_span, Span::raw(" ")];
+            line_spans.extend(content_spans);
+
+            result.push(line_spans);
+        }
+    }
+
+    result
+}

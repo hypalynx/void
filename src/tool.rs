@@ -4,10 +4,18 @@ use regex::Regex;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
+use crate::types::FileDiff;
 
 const MAX_OUTPUT_LINES: usize = 500;
 const MAX_OUTPUT_CONTEXT: usize = 50;
 const MAX_LINE_WIDTH: usize = 2000;
+
+/// Output from tool execution: content for LLM and optional diff for display
+#[derive(Debug)]
+pub struct ToolOutput {
+    pub content: String,
+    pub diff: Option<FileDiff>,
+}
 
 #[derive(Debug, Clone)]
 pub struct ToolCall {
@@ -21,14 +29,37 @@ pub fn definitions() -> Vec<Value> {
     serde_json::from_str(json_str).expect("Failed to parse tool_definitions.json")
 }
 
-pub fn execute(tool: &ToolCall) -> anyhow::Result<String> {
+pub fn execute(tool: &ToolCall) -> anyhow::Result<ToolOutput> {
     match tool.name.as_str() {
         "Read" => read(&tool.args),
         "Glob" => glob(&tool.args),
         "Grep" => grep(&tool.args),
         "Bash" => bash(&tool.args),
+        "Write" => write_file(&tool.args),
+        "Edit" => edit(&tool.args),
         _ => Err(Error::msg(format!("Unknown tool: {}", tool.name))),
     }
+}
+
+/// Format a tool call for display (e.g., "Read filePath" instead of full JSON args)
+pub fn format_tool_call(tool_name: &str, args: &serde_json::Map<String, Value>) -> String {
+    let params = match tool_name {
+        "Read" => {
+            // Show filePath, optionally mention offset if present
+            if args.contains_key("offset") {
+                "filePath, offset".to_string()
+            } else {
+                "filePath".to_string()
+            }
+        }
+        "Glob" => "pattern".to_string(),
+        "Grep" => "pattern, files".to_string(),
+        "Bash" => "command".to_string(),
+        "Write" => "path".to_string(),
+        "Edit" => "path".to_string(),
+        _ => return tool_name.to_string(),
+    };
+    format!("{} {}", tool_name, params)
 }
 
 /// Resolve a path to an absolute path, handling both absolute and relative paths
@@ -86,7 +117,7 @@ fn truncate_line(line: &str) -> String {
     }
 }
 
-fn read(args: &serde_json::Map<String, Value>) -> anyhow::Result<String> {
+fn read(args: &serde_json::Map<String, Value>) -> anyhow::Result<ToolOutput> {
     let path = args
         .get("filePath")
         .and_then(|v| v.as_str())
@@ -105,10 +136,13 @@ fn read(args: &serde_json::Map<String, Value>) -> anyhow::Result<String> {
     let all_lines: Vec<&str> = content.lines().collect();
     let lines_to_show: Vec<&str> = all_lines.iter().skip(offset).cloned().collect();
 
-    Ok(format_truncated(lines_to_show))
+    Ok(ToolOutput {
+        content: format_truncated(lines_to_show),
+        diff: None,
+    })
 }
 
-fn glob(args: &serde_json::Map<String, Value>) -> anyhow::Result<String> {
+fn glob(args: &serde_json::Map<String, Value>) -> anyhow::Result<ToolOutput> {
     let pattern = args
         .get("pattern")
         .and_then(|v| v.as_str())
@@ -126,15 +160,21 @@ fn glob(args: &serde_json::Map<String, Value>) -> anyhow::Result<String> {
         .collect();
 
     if matches.is_empty() {
-        return Ok(format!("No files match pattern: {}", pattern));
+        return Ok(ToolOutput {
+            content: format!("No files match pattern: {}", pattern),
+            diff: None,
+        });
     }
 
     matches.sort();
     let result_lines: Vec<&str> = matches.iter().map(|s| s.as_str()).collect();
-    Ok(format_truncated(result_lines))
+    Ok(ToolOutput {
+        content: format_truncated(result_lines),
+        diff: None,
+    })
 }
 
-fn grep(args: &serde_json::Map<String, Value>) -> anyhow::Result<String> {
+fn grep(args: &serde_json::Map<String, Value>) -> anyhow::Result<ToolOutput> {
     let pattern = args
         .get("pattern")
         .and_then(|v| v.as_str())
@@ -154,7 +194,10 @@ fn grep(args: &serde_json::Map<String, Value>) -> anyhow::Result<String> {
         .collect();
 
     if file_paths.is_empty() {
-        return Ok(format!("No files match pattern: {}", files_pattern));
+        return Ok(ToolOutput {
+            content: format!("No files match pattern: {}", files_pattern),
+            diff: None,
+        });
     }
 
     // Parallel search across files
@@ -191,11 +234,17 @@ fn grep(args: &serde_json::Map<String, Value>) -> anyhow::Result<String> {
         .collect();
 
     if matches.is_empty() {
-        return Ok(format!("No matches found for pattern: {}", pattern));
+        return Ok(ToolOutput {
+            content: format!("No matches found for pattern: {}", pattern),
+            diff: None,
+        });
     }
 
     let result_lines: Vec<&str> = matches.iter().map(|s| s.as_str()).collect();
-    Ok(format_truncated(result_lines))
+    Ok(ToolOutput {
+        content: format_truncated(result_lines),
+        diff: None,
+    })
 }
 
 fn validate_bash_command(command: &str) -> anyhow::Result<()> {
@@ -241,7 +290,7 @@ fn is_command_match(command: &str, pattern: &str) -> bool {
     false
 }
 
-fn bash(args: &serde_json::Map<String, Value>) -> anyhow::Result<String> {
+fn bash(args: &serde_json::Map<String, Value>) -> anyhow::Result<ToolOutput> {
     let command = args
         .get("command")
         .and_then(|v| v.as_str())
@@ -267,5 +316,191 @@ fn bash(args: &serde_json::Map<String, Value>) -> anyhow::Result<String> {
     };
 
     let lines: Vec<&str> = result.lines().collect();
-    Ok(format_truncated(lines))
+    Ok(ToolOutput {
+        content: format_truncated(lines),
+        diff: None,
+    })
+}
+
+/// Compute a diff between old and new content, returning structured diff hunks with context
+fn compute_diff(old: &str, new: &str, path: &str, context: usize) -> crate::types::FileDiff {
+    use similar::TextDiff;
+    use crate::types::{DiffLine, DiffLineKind, DiffHunk};
+
+    let diff = TextDiff::from_lines(old, new);
+
+    // Build list of all diff lines with their line numbers
+    let mut all_lines = Vec::new();
+    let mut old_lineno = 1usize;
+    let mut new_lineno = 1usize;
+
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            similar::ChangeTag::Equal => {
+                all_lines.push((new_lineno, DiffLineKind::Context, change.value().trim_end().to_string()));
+                old_lineno += 1;
+                new_lineno += 1;
+            }
+            similar::ChangeTag::Insert => {
+                all_lines.push((new_lineno, DiffLineKind::Added, change.value().trim_end().to_string()));
+                new_lineno += 1;
+            }
+            similar::ChangeTag::Delete => {
+                all_lines.push((old_lineno, DiffLineKind::Removed, change.value().trim_end().to_string()));
+                old_lineno += 1;
+            }
+        }
+    }
+
+    // Find lines that have changes
+    let changed_indices: Vec<usize> = all_lines
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, kind, _))| *kind != DiffLineKind::Context)
+        .map(|(i, _)| i)
+        .collect();
+
+    if changed_indices.is_empty() {
+        // No changes
+        return crate::types::FileDiff {
+            path: path.to_string(),
+            hunks: vec![],
+        };
+    }
+
+    // Mark which lines to include (changed lines ± context)
+    let mut include = vec![false; all_lines.len()];
+    for &idx in &changed_indices {
+        let start = idx.saturating_sub(context);
+        let end = (idx + context).min(all_lines.len() - 1);
+        for i in start..=end {
+            include[i] = true;
+        }
+    }
+
+    // Build hunks (consecutive groups of included lines)
+    let mut hunks = Vec::new();
+    let mut current_hunk = Vec::new();
+    let mut last_included = None;
+
+    for (i, &should_include) in include.iter().enumerate() {
+        if should_include {
+            let (lineno, kind, content) = &all_lines[i];
+
+            // Check if we should start a new hunk (gap between included regions)
+            if let Some(last) = last_included {
+                if i > last + 1 {
+                    // Gap detected, finalize current hunk and start new one
+                    if !current_hunk.is_empty() {
+                        hunks.push(DiffHunk { lines: current_hunk.clone() });
+                        current_hunk.clear();
+                    }
+                }
+            }
+
+            current_hunk.push(DiffLine {
+                kind: *kind,
+                lineno: *lineno,
+                content: content.clone(),
+            });
+            last_included = Some(i);
+        }
+    }
+
+    // Add final hunk if any
+    if !current_hunk.is_empty() {
+        hunks.push(DiffHunk { lines: current_hunk });
+    }
+
+    crate::types::FileDiff {
+        path: path.to_string(),
+        hunks,
+    }
+}
+
+fn write_file(args: &serde_json::Map<String, Value>) -> anyhow::Result<ToolOutput> {
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| Error::msg("Missing or invalid 'path'"))?;
+
+    let content = args
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| Error::msg("Missing or invalid 'content'"))?;
+
+    // Create parent directories if needed
+    let file_path = Path::new(path);
+    if let Some(parent) = file_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)
+                .map_err(|e| Error::msg(format!("Error creating directories: {}", e)))?;
+        }
+    }
+
+    // Read old content for diff
+    let old_content = fs::read_to_string(path).unwrap_or_default();
+
+    // Write file
+    fs::write(path, content)
+        .map_err(|e| Error::msg(format!("Error writing file: {}", e)))?;
+
+    // Generate diff
+    let diff = compute_diff(&old_content, content, path, 0);
+    let summary = format!("Written {} bytes to {}", content.len(), path);
+
+    Ok(ToolOutput {
+        content: summary,
+        diff: Some(diff),
+    })
+}
+
+fn edit(args: &serde_json::Map<String, Value>) -> anyhow::Result<ToolOutput> {
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| Error::msg("Missing or invalid 'path'"))?;
+
+    let old_string = args
+        .get("old_string")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| Error::msg("Missing or invalid 'old_string'"))?;
+
+    let new_string = args
+        .get("new_string")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| Error::msg("Missing or invalid 'new_string'"))?;
+
+    // Read file
+    let content = fs::read_to_string(path)
+        .map_err(|e| Error::msg(format!("Error reading file: {}", e)))?;
+
+    // Validate old_string exists and is unique
+    if !content.contains(old_string) {
+        return Err(Error::msg("old_string not found in file"));
+    }
+
+    let count = content.matches(old_string).count();
+    if count > 1 {
+        return Err(Error::msg(format!(
+            "old_string appears {} times (must be unique)",
+            count
+        )));
+    }
+
+    // Replace
+    let new_content = content.replacen(old_string, new_string, 1);
+
+    // Write back
+    fs::write(path, &new_content)
+        .map_err(|e| Error::msg(format!("Error writing file: {}", e)))?;
+
+    // Generate diff
+    let diff = compute_diff(&content, &new_content, path, 2);
+    let summary = format!("Edited {}", path);
+
+    Ok(ToolOutput {
+        content: summary,
+        diff: Some(diff),
+    })
 }

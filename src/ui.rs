@@ -99,6 +99,14 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
 
         lines.extend(msg_lines);
 
+        // Render diff if present (for Write/Edit tool results)
+        if let Some(diff) = &msg.diff {
+            let diff_lines = crate::render::render_diff(diff);
+            for spans in diff_lines {
+                lines.push(Line::from(spans));
+            }
+        }
+
         // Render detail if toggled
         if state.show_tool_detail && msg.role == DisplayRole::ToolActivity {
             if let Some(detail) = &msg.detail {

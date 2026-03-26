@@ -55,9 +55,9 @@ async fn execute_tool_calls(tool_calls: Vec<ToolCall>) -> Vec<ToolResultInfo> {
                 args,
             };
 
-            let result = match tool::execute(&tool_obj) {
-                Ok(output) => output,
-                Err(e) => format!("Tool execution error: {}", e),
+            let (content, diff) = match tool::execute(&tool_obj) {
+                Ok(output) => (output.content, output.diff),
+                Err(e) => (format!("Tool execution error: {}", e), None),
             };
 
             let tool_name = tool_call.function.name.clone();
@@ -67,7 +67,8 @@ async fn execute_tool_calls(tool_calls: Vec<ToolCall>) -> Vec<ToolResultInfo> {
                 tool_call_id: tool_call.id,
                 tool_name,
                 tool_args,
-                content: result,
+                content,
+                diff,
             }
         });
 
@@ -185,6 +186,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                                 content: msg.clone(),
                                 thinking: None,
                                 detail: None,
+                                diff: None,
                                 lines: Vec::new(),
                                 thinking_lines: Vec::new(),
                                 detail_lines: Vec::new(),
@@ -242,6 +244,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                             content: String::new(),
                             thinking: None,
                             detail: None,
+                            diff: None,
                             lines: Vec::new(),
                             thinking_lines: Vec::new(),
                             detail_lines: Vec::new(),
@@ -267,6 +270,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                             content: String::new(),
                             thinking: Some(String::new()),
                             detail: None,
+                            diff: None,
                             lines: Vec::new(),
                             thinking_lines: Vec::new(),
                             detail_lines: Vec::new(),
@@ -297,6 +301,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                             content: String::new(),
                             thinking: None,
                             detail: None,
+                            diff: None,
                             lines: Vec::new(),
                             thinking_lines: Vec::new(),
                             detail_lines: Vec::new(),
@@ -388,13 +393,17 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                         });
 
                         // Add permanent record to messages
-                        let call_label = format!("{} {}", result.tool_name, result.tool_args);
+                        let args_map = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+                            &result.tool_args,
+                        ).unwrap_or_default();
+                        let call_label = tool::format_tool_call(&result.tool_name, &args_map);
                         let summary = result.content.clone();
                         state.messages.push(DisplayMessage {
                             role: DisplayRole::ToolActivity,
                             content: call_label,
                             thinking: None,
                             detail: Some(summary),
+                            diff: result.diff.clone(),
                             lines: Vec::new(),
                             thinking_lines: Vec::new(),
                             detail_lines: Vec::new(),

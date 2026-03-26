@@ -3,6 +3,35 @@ use ratatui::text::Line;
 use serde::{Deserialize, Serialize, Serializer};
 use std::sync::mpsc;
 
+/// Diff line kind: context, added, or removed
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffLineKind {
+    Context,
+    Added,
+    Removed,
+}
+
+/// A single line in a diff
+#[derive(Debug, Clone)]
+pub struct DiffLine {
+    pub kind: DiffLineKind,
+    pub lineno: usize,     // new lineno for Context/Added, old lineno for Removed
+    pub content: String,
+}
+
+/// A hunk of diff lines
+#[derive(Debug, Clone)]
+pub struct DiffHunk {
+    pub lines: Vec<DiffLine>,
+}
+
+/// Complete file diff with structured hunks
+#[derive(Debug, Clone)]
+pub struct FileDiff {
+    pub path: String,
+    pub hunks: Vec<DiffHunk>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ToolCall {
     pub id: String,
@@ -23,6 +52,7 @@ pub struct ToolResultInfo {
     pub tool_name: String,
     pub tool_args: String,
     pub content: String,
+    pub diff: Option<FileDiff>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +68,7 @@ pub struct DisplayMessage {
     pub content: String,
     pub thinking: Option<String>,
     pub detail: Option<String>,
+    pub diff: Option<FileDiff>,
     pub lines: Vec<Line<'static>>,
     pub thinking_lines: Vec<Line<'static>>,
     pub detail_lines: Vec<Line<'static>>,
