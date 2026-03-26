@@ -47,23 +47,29 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     // Render messages
     for msg in &state.messages {
         // Render thinking first if present
-        if let Some(thinking) = &msg.thinking {
-            let thinking_lines = render_message(thinking)
-                .into_iter()
-                .map(|spans| {
-                    let styled: Vec<Span> = spans
-                        .into_iter()
-                        .map(|s| {
-                            let mut style = s.style.add_modifier(Modifier::ITALIC);
-                            if style.fg.is_none() {
-                                style = style.fg(Color::DarkGray);
-                            }
-                            Span::styled(s.content, style)
-                        })
-                        .collect();
-                    Line::from(styled)
-                })
-                .collect::<Vec<_>>();
+        if let Some(_thinking) = &msg.thinking {
+            let thinking_lines = if msg.thinking_lines.is_empty() {
+                // Streaming thinking — render live
+                render_message(_thinking)
+                    .into_iter()
+                    .map(|spans| {
+                        let styled: Vec<Span> = spans
+                            .into_iter()
+                            .map(|s| {
+                                let mut style = s.style.add_modifier(Modifier::ITALIC);
+                                if style.fg.is_none() {
+                                    style = style.fg(Color::DarkGray);
+                                }
+                                Span::styled(s.content, style)
+                            })
+                            .collect();
+                        Line::from(styled)
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                // Cached — use directly
+                msg.thinking_lines.clone()
+            };
             lines.extend(thinking_lines);
         }
 

@@ -39,6 +39,7 @@ pub struct DisplayMessage {
     pub thinking: Option<String>,
     pub detail: Option<String>,
     pub lines: Vec<Line<'static>>,
+    pub thinking_lines: Vec<Line<'static>>,
     pub detail_lines: Vec<Line<'static>>,
 }
 

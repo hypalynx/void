@@ -15,7 +15,8 @@ use void::stream::{StreamEvent, stream_response};
 use void::tool;
 use void::types::{AppState, ApiMessage, DisplayMessage, DisplayRole, ToolCall, ToolResultInfo};
 use void::ui::{draw, spinner_len};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
+use ratatui::style::{Color, Modifier};
 
 #[derive(Parser)]
 #[command(name = "void")]
@@ -185,6 +186,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                                 thinking: None,
                                 detail: None,
                                 lines: Vec::new(),
+                                thinking_lines: Vec::new(),
                                 detail_lines: Vec::new(),
                             });
                             state.api_log.push(ApiMessage::User { content: msg });
@@ -241,6 +243,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                             thinking: None,
                             detail: None,
                             lines: Vec::new(),
+                            thinking_lines: Vec::new(),
                             detail_lines: Vec::new(),
                         });
                         state.api_log.push(ApiMessage::Assistant {
@@ -265,6 +268,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                             thinking: Some(String::new()),
                             detail: None,
                             lines: Vec::new(),
+                            thinking_lines: Vec::new(),
                             detail_lines: Vec::new(),
                         });
                         state.api_log.push(ApiMessage::Assistant {
@@ -294,6 +298,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                             thinking: None,
                             detail: None,
                             lines: Vec::new(),
+                            thinking_lines: Vec::new(),
                             detail_lines: Vec::new(),
                         });
                         state.api_log.push(ApiMessage::Assistant {
@@ -314,11 +319,33 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
 
                     // Cache rendered lines for the completed assistant message
                     if let Some(msg) = state.messages.last_mut() {
-                        if msg.role == DisplayRole::Assistant && msg.lines.is_empty() {
-                            msg.lines = render_message(&msg.content)
-                                .into_iter()
-                                .map(|spans| Line::from(spans))
-                                .collect();
+                        if msg.role == DisplayRole::Assistant {
+                            if msg.lines.is_empty() {
+                                msg.lines = render_message(&msg.content)
+                                    .into_iter()
+                                    .map(|spans| Line::from(spans))
+                                    .collect();
+                            }
+                            if msg.thinking_lines.is_empty() {
+                                if let Some(thinking) = &msg.thinking {
+                                    msg.thinking_lines = render_message(thinking)
+                                        .into_iter()
+                                        .map(|spans| {
+                                            let styled: Vec<Span> = spans
+                                                .into_iter()
+                                                .map(|s| {
+                                                    let mut style = s.style.add_modifier(Modifier::ITALIC);
+                                                    if style.fg.is_none() {
+                                                        style = style.fg(Color::DarkGray);
+                                                    }
+                                                    Span::styled(s.content, style)
+                                                })
+                                                .collect();
+                                            Line::from(styled)
+                                        })
+                                        .collect();
+                                }
+                            }
                         }
                     }
 
@@ -369,6 +396,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                             thinking: None,
                             detail: Some(summary),
                             lines: Vec::new(),
+                            thinking_lines: Vec::new(),
                             detail_lines: Vec::new(),
                         });
                     }
