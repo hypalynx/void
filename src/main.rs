@@ -124,9 +124,19 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
             state.scroll_offset = ((state.scroll_offset as i32) + delta).max(0) as u16;
         }
 
+        // Capture whether user was at bottom before draw updates total_rendered_lines
+        let old_max = state.total_rendered_lines.saturating_sub(state.msg_area_height as usize) as u16;
+        let was_at_bottom = state.target_scroll_offset >= old_max;
+
         let draw_start = Instant::now();
         terminal.draw(|frame| draw(frame, &mut state))?;
         state.last_draw_ms = draw_start.elapsed().as_secs_f64() * 1000.0;
+
+        // Sticky bottom: if user was at bottom, track new bottom (fixes both issues)
+        if was_at_bottom {
+            let new_max = state.total_rendered_lines.saturating_sub(state.msg_area_height as usize) as u16;
+            state.target_scroll_offset = new_max;
+        }
 
         // Non-blocking input check
         if event::poll(Duration::ZERO)? {
