@@ -22,8 +22,11 @@ pub async fn stream_response(
     messages: Vec<ApiMessage>,
     tx: mpsc::Sender<StreamEvent>,
     port: u16,
+    host: String,
+    model: Option<String>,
+    api_key: Option<String>,
 ) -> anyhow::Result<()> {
-    let response = crate::llm::chat_completions(port, &messages).await?;
+    let response = crate::llm::chat_completions(port, host, model, api_key, &messages).await?;
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut partial_tool_calls: HashMap<String, PartialToolCall> = HashMap::new();

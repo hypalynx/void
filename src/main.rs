@@ -23,15 +23,31 @@ use ratatui::style::{Color, Modifier};
 struct Cli {
     #[arg(short, long, default_value = "7777")]
     port: u16,
+    #[arg(long)]
+    host: Option<String>,
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long)]
+    api_key: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    // Get API key from flag or environment variable
+    let api_key = cli.api_key.or_else(|| std::env::var("VOID_API_KEY").ok());
+
     let mut terminal = ratatui::init();
     execute!(io::stdout(), crossterm::event::EnableMouseCapture)?;
-    let result = app(&mut terminal, cli.port).await;
+    let result = app(
+        &mut terminal,
+        cli.port,
+        cli.host.unwrap_or_else(|| "127.0.0.1".to_string()),
+        cli.model,
+        api_key,
+    )
+    .await;
     execute!(io::stdout(), crossterm::event::DisableMouseCapture)?;
     ratatui::restore();
     result
@@ -85,7 +101,13 @@ async fn execute_tool_calls(tool_calls: Vec<ToolCall>) -> Vec<ToolResultInfo> {
     results
 }
 
-async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
+async fn app(
+    terminal: &mut DefaultTerminal,
+    port: u16,
+    host: String,
+    model: Option<String>,
+    api_key: Option<String>,
+) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel();
 
     let mut state = AppState {
@@ -97,6 +119,9 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
         tool_status: Vec::new(),
         show_tool_detail: false,
         port,
+        host,
+        model,
+        api_key,
         rx,
         tx,
         waiting: false,
@@ -243,8 +268,12 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
 
                             let api_log = state.api_log.clone();
                             let tx = state.tx.clone();
+                            let port = state.port;
+                            let host = state.host.clone();
+                            let model = state.model.clone();
+                            let api_key = state.api_key.clone();
                             tokio::spawn(async move {
-                                let _ = stream_response(api_log, tx, port).await;
+                                let _ = stream_response(api_log, tx, port, host, model, api_key).await;
                             });
                         }
                         Command::ToggleToolDetail => {
@@ -502,8 +531,12 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                     // Re-invoke LLM
                     let api_log = state.api_log.clone();
                     let tx = state.tx.clone();
+                    let port = state.port;
+                    let host = state.host.clone();
+                    let model = state.model.clone();
+                    let api_key = state.api_key.clone();
                     tokio::spawn(async move {
-                        let _ = stream_response(api_log, tx, port).await;
+                        let _ = stream_response(api_log, tx, port, host, model, api_key).await;
                     });
 
                     state.waiting = true;
