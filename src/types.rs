@@ -157,4 +157,7 @@ pub struct AppState {
     pub target_scroll_offset: u16,
     pub total_rendered_lines: usize,
     pub msg_area_height: u16,
+    pub input_history: Vec<String>,
+    pub history_idx: Option<usize>,
+    pub history_draft: String,
 }

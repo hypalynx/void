@@ -18,6 +18,10 @@ pub fn spinner_len() -> usize {
 }
 
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
+    // Calculate input height based on number of lines
+    let input_lines = state.input.matches('\n').count() + 1;
+    let input_height = (2 + input_lines).min(12) as u16; // cap at 10 inner lines
+
     let layout = Layout::default()
         .vertical_margin(VERTICAL_MARGIN)
         .horizontal_margin(HORIZONTAL_MARGIN)
@@ -25,7 +29,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
         .direction(Direction::Vertical)
         .constraints(vec![
             Constraint::Fill(1),
-            Constraint::Length(3),
+            Constraint::Length(input_height),
             Constraint::Length(1),
         ])
         .split(frame.area());
@@ -151,7 +155,10 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
         .scroll((state.scroll_offset, 0));
     frame.render_widget(paragraph, layout[0]);
     frame.render_widget(input_block, layout[1]);
-    frame.render_widget(state.input.as_str(), inner);
+
+    // Render input as a paragraph to support multiline with proper newline handling
+    let input_para = Paragraph::new(state.input.as_str()).wrap(Wrap { trim: false });
+    frame.render_widget(input_para, inner);
 
     // Build status line with metrics on the right
     let status_left = if state.waiting {
@@ -177,9 +184,12 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
 
     frame.render_widget(status_line, layout[2]);
 
-    let cursor_x = inner.x + state.cursor as u16;
-    let cursor_y = inner.y;
-    frame.set_cursor_position((cursor_x, cursor_y));
+    // Calculate 2D cursor position for multiline input
+    let text_before = &state.input[..state.cursor];
+    let cursor_row = text_before.matches('\n').count();
+    let line_start = text_before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let cursor_col = state.cursor - line_start;
+    frame.set_cursor_position((inner.x + cursor_col as u16, inner.y + cursor_row as u16));
 }
 
 fn color_for_role(role: DisplayRole) -> Color {

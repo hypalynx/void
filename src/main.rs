@@ -108,7 +108,22 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
         target_scroll_offset: 0,
         total_rendered_lines: 0,
         msg_area_height: 0,
+        input_history: Vec::new(),
+        history_idx: None,
+        history_draft: String::new(),
     };
+
+    // Load input history from ~/.void_history
+    if let Ok(home) = std::env::var("HOME") {
+        let history_path = format!("{}/.void_history", home);
+        if let Ok(contents) = std::fs::read_to_string(&history_path) {
+            state.input_history = contents
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(String::from)
+                .collect();
+        }
+    }
 
     let mut frame_count = 0;
     let mut last_fps_time = Instant::now();
@@ -173,10 +188,10 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                             state.cursor = move_forward_word(&state.input, state.cursor);
                         }
                         Command::MoveStartOfLine => {
-                            state.cursor = move_start_of_line();
+                            state.cursor = move_start_of_line(&state.input, state.cursor);
                         }
                         Command::MoveEndOfLine => {
-                            state.cursor = move_end_of_line(&state.input);
+                            state.cursor = move_end_of_line(&state.input, state.cursor);
                         }
                         Command::KillBackwardWord => {
                             (state.input, state.cursor) =
@@ -201,7 +216,26 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                                 thinking_lines: Vec::new(),
                                 detail_lines: Vec::new(),
                             });
-                            state.api_log.push(ApiMessage::User { content: msg });
+                            state.api_log.push(ApiMessage::User { content: msg.clone() });
+
+                            // Save to history and reset index
+                            if !msg.is_empty() {
+                                state.input_history.push(msg.clone());
+                                state.history_idx = None;
+                                // Append to ~/.void_history
+                                if let Ok(home) = std::env::var("HOME") {
+                                    let history_path = format!("{}/.void_history", home);
+                                    let _ = std::fs::OpenOptions::new()
+                                        .create(true)
+                                        .append(true)
+                                        .open(&history_path)
+                                        .and_then(|mut f| {
+                                            use std::io::Write;
+                                            writeln!(f, "{}", msg)
+                                        });
+                                }
+                            }
+
                             state.input.clear();
                             state.cursor = 0;
                             state.waiting = true;
@@ -215,6 +249,51 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                         }
                         Command::ToggleToolDetail => {
                             state.show_tool_detail = !state.show_tool_detail;
+                        }
+                        Command::NewLine => {
+                            state.input.insert(state.cursor, '\n');
+                            state.cursor += 1;
+                            state.history_idx = None;
+                        }
+                        Command::MoveLineUp => {
+                            use void::input::{is_first_line, cursor_up};
+                            if is_first_line(&state.input, state.cursor) {
+                                if !state.input_history.is_empty() {
+                                    // Save current draft when first entering history
+                                    if state.history_idx.is_none() {
+                                        state.history_draft = state.input.clone();
+                                    }
+                                    let idx = state.history_idx.map(|i| i.saturating_sub(1))
+                                        .unwrap_or(state.input_history.len() - 1);
+                                    state.history_idx = Some(idx);
+                                    state.input = state.input_history[idx].clone();
+                                    state.cursor = state.input.len();
+                                }
+                            } else {
+                                state.cursor = cursor_up(&state.input, state.cursor);
+                            }
+                        }
+                        Command::MoveLineDown => {
+                            use void::input::{is_last_line, cursor_down};
+                            if is_last_line(&state.input, state.cursor) {
+                                match state.history_idx {
+                                    None => {}
+                                    Some(i) if i + 1 >= state.input_history.len() => {
+                                        // Returning to present — restore draft
+                                        state.history_idx = None;
+                                        state.input = state.history_draft.clone();
+                                        state.cursor = state.input.len();
+                                    }
+                                    Some(i) => {
+                                        let idx = i + 1;
+                                        state.history_idx = Some(idx);
+                                        state.input = state.input_history[idx].clone();
+                                        state.cursor = state.input.len();
+                                    }
+                                }
+                            } else {
+                                state.cursor = cursor_down(&state.input, state.cursor);
+                            }
                         }
                         Command::None => {}
                     }
