@@ -72,13 +72,9 @@
           "command": {
             "type": "string",
             "description": "Shell command to execute"
-          },
-          "description": {
-            "type": "string",
-            "description": "Brief description of what this command does"
           }
         },
-        "required": ["command", "description"],
+        "required": ["command"],
         "additionalProperties": false
       }
     }
