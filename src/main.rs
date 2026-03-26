@@ -10,10 +10,12 @@ use void::input::{
     kill_backward_word, move_backward_char, move_backward_word, move_end_of_line,
     move_forward_char, move_forward_word, move_start_of_line, yank,
 };
+use void::render::render_message;
 use void::stream::{StreamEvent, stream_response};
 use void::tool;
-use void::types::{AppState, Message, ToolCall, ToolResultInfo};
+use void::types::{AppState, ApiMessage, DisplayMessage, DisplayRole, ToolCall, ToolResultInfo};
 use void::ui::{draw, spinner_len};
+use ratatui::text::Line;
 
 #[derive(Parser)]
 #[command(name = "void")]
@@ -57,8 +59,13 @@ async fn execute_tool_calls(tool_calls: Vec<ToolCall>) -> Vec<ToolResultInfo> {
                 Err(e) => format!("Tool execution error: {}", e),
             };
 
+            let tool_name = tool_call.function.name.clone();
+            let tool_args = tool_call.function.arguments.clone();
+
             ToolResultInfo {
                 tool_call_id: tool_call.id,
+                tool_name,
+                tool_args,
                 content: result,
             }
         });
@@ -84,6 +91,9 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
         cursor: 0,
         clipboard: String::new(),
         messages: Vec::new(),
+        api_log: Vec::new(),
+        tool_status: Vec::new(),
+        show_tool_detail: false,
         port,
         rx,
         tx,
@@ -169,17 +179,28 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                                 yank(&state.input, state.cursor, &state.clipboard.clone());
                         }
                         Command::SubmitInput(msg) => {
-                            state.messages.push(Message::User { content: msg });
+                            state.messages.push(DisplayMessage {
+                                role: DisplayRole::User,
+                                content: msg.clone(),
+                                thinking: None,
+                                detail: None,
+                                lines: Vec::new(),
+                                detail_lines: Vec::new(),
+                            });
+                            state.api_log.push(ApiMessage::User { content: msg });
                             state.input.clear();
                             state.cursor = 0;
                             state.waiting = true;
                             state.spinner_idx = 0;
 
-                            let messages = state.messages.clone();
+                            let api_log = state.api_log.clone();
                             let tx = state.tx.clone();
                             tokio::spawn(async move {
-                                let _ = stream_response(messages, tx, port).await;
+                                let _ = stream_response(api_log, tx, port).await;
                             });
+                        }
+                        Command::ToggleToolDetail => {
+                            state.show_tool_detail = !state.show_tool_detail;
                         }
                         Command::None => {}
                     }
@@ -214,7 +235,15 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
             match event {
                 StreamEvent::Token(token) => {
                     if state.current_stream_message_idx.is_none() {
-                        state.messages.push(Message::Assistant {
+                        state.messages.push(DisplayMessage {
+                            role: DisplayRole::Assistant,
+                            content: String::new(),
+                            thinking: None,
+                            detail: None,
+                            lines: Vec::new(),
+                            detail_lines: Vec::new(),
+                        });
+                        state.api_log.push(ApiMessage::Assistant {
                             content: String::new(),
                             thinking: None,
                             tool_calls: Vec::new(),
@@ -222,14 +251,23 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                         state.current_stream_message_idx = Some(state.messages.len() - 1);
                     }
                     if let Some(idx) = state.current_stream_message_idx {
-                        if let Message::Assistant { content, .. } = &mut state.messages[idx] {
+                        state.messages[idx].content.push_str(&token);
+                        if let ApiMessage::Assistant { content, .. } = &mut state.api_log[idx] {
                             content.push_str(&token);
                         }
                     }
                 }
                 StreamEvent::Thinking(thinking) => {
                     if state.current_stream_message_idx.is_none() {
-                        state.messages.push(Message::Assistant {
+                        state.messages.push(DisplayMessage {
+                            role: DisplayRole::Assistant,
+                            content: String::new(),
+                            thinking: Some(String::new()),
+                            detail: None,
+                            lines: Vec::new(),
+                            detail_lines: Vec::new(),
+                        });
+                        state.api_log.push(ApiMessage::Assistant {
                             content: String::new(),
                             thinking: Some(String::new()),
                             tool_calls: Vec::new(),
@@ -237,7 +275,11 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                         state.current_stream_message_idx = Some(state.messages.len() - 1);
                     }
                     if let Some(idx) = state.current_stream_message_idx {
-                        if let Message::Assistant { thinking: t, .. } = &mut state.messages[idx] {
+                        // Append to both display and api messages
+                        if let Some(thinking_text) = &mut state.messages[idx].thinking {
+                            thinking_text.push_str(&thinking);
+                        }
+                        if let ApiMessage::Assistant { thinking: t, .. } = &mut state.api_log[idx] {
                             if let Some(thinking_text) = t {
                                 thinking_text.push_str(&thinking);
                             }
@@ -246,7 +288,15 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                 }
                 StreamEvent::ToolCall(tool_call) => {
                     if state.current_stream_message_idx.is_none() {
-                        state.messages.push(Message::Assistant {
+                        state.messages.push(DisplayMessage {
+                            role: DisplayRole::Assistant,
+                            content: String::new(),
+                            thinking: None,
+                            detail: None,
+                            lines: Vec::new(),
+                            detail_lines: Vec::new(),
+                        });
+                        state.api_log.push(ApiMessage::Assistant {
                             content: String::new(),
                             thinking: None,
                             tool_calls: Vec::new(),
@@ -254,7 +304,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                         state.current_stream_message_idx = Some(state.messages.len() - 1);
                     }
                     if let Some(idx) = state.current_stream_message_idx {
-                        if let Message::Assistant { tool_calls, .. } = &mut state.messages[idx] {
+                        if let ApiMessage::Assistant { tool_calls, .. } = &mut state.api_log[idx] {
                             tool_calls.push(tool_call);
                         }
                     }
@@ -262,22 +312,30 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                 StreamEvent::Done => {
                     state.current_stream_message_idx = None;
 
-                    if let Some(Message::Assistant { tool_calls, .. }) = state.messages.last() {
+                    // Cache rendered lines for the completed assistant message
+                    if let Some(msg) = state.messages.last_mut() {
+                        if msg.role == DisplayRole::Assistant && msg.lines.is_empty() {
+                            msg.lines = render_message(&msg.content)
+                                .into_iter()
+                                .map(|spans| Line::from(spans))
+                                .collect();
+                        }
+                    }
+
+                    if let Some(ApiMessage::Assistant { tool_calls, .. }) = state.api_log.last() {
                         if !tool_calls.is_empty() {
                             let tool_calls = tool_calls.clone();
-                            let messages = state.messages.clone();
                             let tx = state.tx.clone();
 
                             tokio::spawn(async move {
-                                let results = execute_tool_calls(tool_calls).await;
-                                let mut updated_messages = messages;
-                                for result in results {
-                                    updated_messages.push(Message::ToolResult {
-                                        tool_call_id: result.tool_call_id,
-                                        content: result.content,
-                                    });
+                                // Emit tool execution started events
+                                for tool_call in &tool_calls {
+                                    let desc = format!("Executing {}...", tool_call.function.name);
+                                    let _ = tx.send(StreamEvent::ToolExecuting(desc));
                                 }
-                                let _ = stream_response(updated_messages, tx, port).await;
+
+                                let results = execute_tool_calls(tool_calls).await;
+                                let _ = tx.send(StreamEvent::ToolsExecuted(results));
                             });
 
                             state.waiting = true;
@@ -288,6 +346,42 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                     } else {
                         state.waiting = false;
                     }
+                }
+                StreamEvent::ToolExecuting(desc) => {
+                    state.tool_status.push(desc);
+                }
+                StreamEvent::ToolsExecuted(results) => {
+                    state.tool_status.clear();
+
+                    for result in results {
+                        // Add to api_log
+                        state.api_log.push(ApiMessage::ToolResult {
+                            tool_call_id: result.tool_call_id.clone(),
+                            content: result.content.clone(),
+                        });
+
+                        // Add permanent record to messages
+                        let call_label = format!("{} {}", result.tool_name, result.tool_args);
+                        let summary = result.content.clone();
+                        state.messages.push(DisplayMessage {
+                            role: DisplayRole::ToolActivity,
+                            content: call_label,
+                            thinking: None,
+                            detail: Some(summary),
+                            lines: Vec::new(),
+                            detail_lines: Vec::new(),
+                        });
+                    }
+
+                    // Re-invoke LLM
+                    let api_log = state.api_log.clone();
+                    let tx = state.tx.clone();
+                    tokio::spawn(async move {
+                        let _ = stream_response(api_log, tx, port).await;
+                    });
+
+                    state.waiting = true;
+                    state.spinner_idx = 0;
                 }
             }
         }

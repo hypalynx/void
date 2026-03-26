@@ -1,5 +1,5 @@
 use crate::render::render_message;
-use crate::types::AppState;
+use crate::types::{AppState, DisplayRole};
 use ratatui::Frame;
 use ratatui::prelude::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Stylize};
@@ -43,84 +43,84 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     state.msg_area_height = layout[0].height;
 
     let mut lines = Vec::new();
+
+    // Render messages
     for msg in &state.messages {
-        match msg {
-            crate::types::Message::User { content } => {
-                let role_color = Color::Cyan;
-                for spans in render_message(content) {
+        // Render thinking first if present
+        if let Some(thinking) = &msg.thinking {
+            let thinking_lines = render_message(thinking)
+                .into_iter()
+                .map(|spans| {
+                    let styled: Vec<Span> = spans
+                        .into_iter()
+                        .map(|s| {
+                            let mut style = s.style.add_modifier(Modifier::ITALIC);
+                            if style.fg.is_none() {
+                                style = style.fg(Color::DarkGray);
+                            }
+                            Span::styled(s.content, style)
+                        })
+                        .collect();
+                    Line::from(styled)
+                })
+                .collect::<Vec<_>>();
+            lines.extend(thinking_lines);
+        }
+
+        // Render main content
+        let msg_lines = if msg.lines.is_empty() {
+            // Streaming message — render live
+            render_message(&msg.content)
+                .into_iter()
+                .map(|spans| {
                     let colored: Vec<Span> = spans
                         .into_iter()
                         .map(|s| {
                             if s.style.fg.is_none() {
-                                Span::styled(s.content, role_color)
+                                Span::styled(s.content, color_for_role(msg.role))
                             } else {
                                 s
                             }
                         })
                         .collect();
-                    lines.push(Line::from(colored));
-                }
-            }
-            crate::types::Message::Assistant {
-                content,
-                thinking,
-                ..
-            } => {
-                let role_color = Color::White;
-                if let Some(t) = thinking {
-                    for spans in render_message(t) {
-                        let italic_spans: Vec<Span> = spans
-                            .into_iter()
-                            .map(|s| {
-                                let mut style = s.style.add_modifier(Modifier::ITALIC);
-                                if style.fg.is_none() {
-                                    style = style.fg(Color::DarkGray);
-                                }
-                                Span::styled(s.content, style)
-                            })
-                            .collect();
-                        lines.push(Line::from(italic_spans));
-                    }
-                }
-                for spans in render_message(content) {
-                    let colored: Vec<Span> = spans
+                    Line::from(colored)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            // Cached — use directly
+            msg.lines.clone()
+        };
+
+        lines.extend(msg_lines);
+
+        // Render detail if toggled
+        if state.show_tool_detail && msg.role == DisplayRole::ToolActivity {
+            if let Some(detail) = &msg.detail {
+                let detail_lines = if msg.detail_lines.is_empty() {
+                    // Not yet cached
+                    render_message(detail)
                         .into_iter()
-                        .map(|s| {
-                            if s.style.fg.is_none() {
-                                Span::styled(s.content, role_color)
-                            } else {
-                                s
-                            }
-                        })
-                        .collect();
-                    lines.push(Line::from(colored));
-                }
-            }
-            crate::types::Message::ToolResult {
-                tool_call_id,
-                content,
-            } => {
-                let role_color = Color::Green;
-                lines.push(Line::from(vec![
-                    Span::styled(format!("[Tool: {}", tool_call_id), role_color),
-                    Span::raw("]"),
-                ]));
-                for spans in render_message(content) {
-                    let colored: Vec<Span> = spans
-                        .into_iter()
-                        .map(|s| {
-                            if s.style.fg.is_none() {
-                                Span::styled(s.content, role_color)
-                            } else {
-                                s
-                            }
-                        })
-                        .collect();
-                    lines.push(Line::from(colored));
-                }
+                        .map(|spans| Line::from(spans))
+                        .collect::<Vec<_>>()
+                } else {
+                    // Cached
+                    msg.detail_lines.clone()
+                };
+                lines.extend(detail_lines);
             }
         }
+
         lines.push(Line::from("")); // Blank line between messages
+    }
+
+    // Render tool status
+    for status in &state.tool_status {
+        let spinner_char = SPINNER_CHARS
+            .chars()
+            .nth(state.spinner_idx % spinner_len())
+            .unwrap_or(' ');
+        let status_line = format!("  {} {}", spinner_char, status);
+        lines.push(Line::from(Span::styled(status_line, Color::Yellow)));
     }
 
     // Compute total rendered lines after word wrapping
@@ -166,4 +166,12 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     let cursor_x = inner.x + state.cursor as u16;
     let cursor_y = inner.y;
     frame.set_cursor_position((cursor_x, cursor_y));
+}
+
+fn color_for_role(role: DisplayRole) -> Color {
+    match role {
+        DisplayRole::User => Color::Cyan,
+        DisplayRole::Assistant => Color::White,
+        DisplayRole::ToolActivity => Color::Yellow,
+    }
 }

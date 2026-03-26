@@ -1,4 +1,4 @@
-use crate::types::{Message, ToolCall, ToolFunction};
+use crate::types::{ApiMessage, ToolCall, ToolFunction, ToolResultInfo};
 use futures_util::TryStreamExt;
 use std::collections::HashMap;
 use std::sync::mpsc;
@@ -7,6 +7,8 @@ pub enum StreamEvent {
     Token(String),
     Thinking(String),
     ToolCall(ToolCall),
+    ToolExecuting(String),
+    ToolsExecuted(Vec<ToolResultInfo>),
     Done,
 }
 
@@ -17,7 +19,7 @@ struct PartialToolCall {
 }
 
 pub async fn stream_response(
-    messages: Vec<Message>,
+    messages: Vec<ApiMessage>,
     tx: mpsc::Sender<StreamEvent>,
     port: u16,
 ) -> anyhow::Result<()> {

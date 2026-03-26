@@ -15,6 +15,7 @@ pub enum Command {
     MoveEndOfLine,
     KillBackwardLine,
     Yank,
+    ToggleToolDetail,
     Exit,
     None,
 }
@@ -51,6 +52,9 @@ pub fn handle_user_input(key: KeyEvent, _input: &str) -> Command {
             }
             KeyCode::Char('y') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 Command::Yank
+            }
+            KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                Command::ToggleToolDetail
             }
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Command::Exit,
             KeyCode::Left => Command::MoveBackwardChar,

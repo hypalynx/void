@@ -1,4 +1,5 @@
 use crate::stream::StreamEvent;
+use ratatui::text::Line;
 use serde::{Deserialize, Serialize, Serializer};
 use std::sync::mpsc;
 
@@ -19,11 +20,30 @@ pub struct ToolFunction {
 #[derive(Debug, Clone)]
 pub struct ToolResultInfo {
     pub tool_call_id: String,
+    pub tool_name: String,
+    pub tool_args: String,
     pub content: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisplayRole {
+    User,
+    Assistant,
+    ToolActivity,
+}
+
 #[derive(Debug, Clone)]
-pub enum Message {
+pub struct DisplayMessage {
+    pub role: DisplayRole,
+    pub content: String,
+    pub thinking: Option<String>,
+    pub detail: Option<String>,
+    pub lines: Vec<Line<'static>>,
+    pub detail_lines: Vec<Line<'static>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ApiMessage {
     User {
         content: String,
     },
@@ -38,7 +58,7 @@ pub enum Message {
     },
 }
 
-impl Serialize for Message {
+impl Serialize for ApiMessage {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -47,11 +67,11 @@ impl Serialize for Message {
         let mut map = serializer.serialize_map(None)?;
 
         match self {
-            Message::User { content } => {
+            ApiMessage::User { content } => {
                 map.serialize_entry("role", "user")?;
                 map.serialize_entry("content", content)?;
             }
-            Message::Assistant {
+            ApiMessage::Assistant {
                 content,
                 thinking,
                 tool_calls,
@@ -71,7 +91,7 @@ impl Serialize for Message {
                     map.serialize_entry("tool_calls", tool_calls)?;
                 }
             }
-            Message::ToolResult {
+            ApiMessage::ToolResult {
                 tool_call_id,
                 content,
             } => {
@@ -89,7 +109,10 @@ pub struct AppState {
     pub input: String,
     pub cursor: usize,
     pub clipboard: String,
-    pub messages: Vec<Message>,
+    pub messages: Vec<DisplayMessage>,
+    pub api_log: Vec<ApiMessage>,
+    pub tool_status: Vec<String>,
+    pub show_tool_detail: bool,
     pub port: u16,
     pub rx: mpsc::Receiver<StreamEvent>,
     pub tx: mpsc::Sender<StreamEvent>,

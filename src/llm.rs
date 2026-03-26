@@ -1,8 +1,8 @@
-use crate::types::Message;
+use crate::types::ApiMessage;
 
 pub async fn chat_completions(
     port: u16,
-    messages: &[Message],
+    messages: &[ApiMessage],
 ) -> anyhow::Result<reqwest::Response> {
     let client = reqwest::Client::new();
 
