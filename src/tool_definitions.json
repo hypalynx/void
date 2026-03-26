@@ -1,0 +1,86 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "Read",
+      "description": "Read the complete contents of a file. Accepts absolute paths (starting with /) or relative paths from current directory. Returns the raw text content. Large files are truncated - use offset to read specific portions.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "Path to the file - either absolute (e.g., /etc/hosts) or relative (e.g., ./README.md)"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Line number to start reading from (1-indexed). Useful for reading large files in chunks. Defaults to 1."
+          }
+        },
+        "required": ["filePath"],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Glob",
+      "description": "Find files matching a glob pattern from the current directory. Use * to match any characters within a name, ** to match across directories. Returns list of matching file paths. Output truncated after 500 lines; use more specific patterns for larger result sets.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern (e.g., '*.rs', 'src/**/*.ts', 'test_*.py')"
+          }
+        },
+        "required": ["pattern"],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Grep",
+      "description": "Search for lines matching a pattern in files. Use regex patterns to find text across one or more files. Output truncated after 500 lines; refine your pattern or glob to narrow results.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Regex pattern to search for"
+          },
+          "files": {
+            "type": "string",
+            "description": "File path or glob pattern (e.g., '*.rs', './src/main.rs', 'src/**/*.py')"
+          }
+        },
+        "required": ["pattern", "files"],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Bash",
+      "description": "Execute a shell command and return output. Dangerous commands are blocked. Output truncated after 500 lines; use filters to narrow output.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute"
+          },
+          "description": {
+            "type": "string",
+            "description": "Brief description of what this command does"
+          }
+        },
+        "required": ["command", "description"],
+        "additionalProperties": false
+      }
+    }
+  }
+]

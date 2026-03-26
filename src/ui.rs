@@ -44,38 +44,81 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
 
     let mut lines = Vec::new();
     for msg in &state.messages {
-        let role_color = match msg.role.as_str() {
-            "user" => Color::Cyan,
-            "assistant" => Color::White,
-            _ => Color::White,
-        };
-        if let Some(thinking) = &msg.thinking {
-            for spans in render_message(thinking) {
-                let italic_spans: Vec<Span> = spans
-                    .into_iter()
-                    .map(|s| {
-                        let mut style = s.style.add_modifier(Modifier::ITALIC);
-                        if style.fg.is_none() {
-                            style = style.fg(Color::DarkGray);
-                        }
-                        Span::styled(s.content, style)
-                    })
-                    .collect();
-                lines.push(Line::from(italic_spans));
+        match msg {
+            crate::types::Message::User { content } => {
+                let role_color = Color::Cyan;
+                for spans in render_message(content) {
+                    let colored: Vec<Span> = spans
+                        .into_iter()
+                        .map(|s| {
+                            if s.style.fg.is_none() {
+                                Span::styled(s.content, role_color)
+                            } else {
+                                s
+                            }
+                        })
+                        .collect();
+                    lines.push(Line::from(colored));
+                }
             }
-        }
-        for spans in render_message(&msg.content) {
-            let colored: Vec<Span> = spans
-                .into_iter()
-                .map(|s| {
-                    if s.style.fg.is_none() {
-                        Span::styled(s.content, role_color)
-                    } else {
-                        s
+            crate::types::Message::Assistant {
+                content,
+                thinking,
+                ..
+            } => {
+                let role_color = Color::White;
+                if let Some(t) = thinking {
+                    for spans in render_message(t) {
+                        let italic_spans: Vec<Span> = spans
+                            .into_iter()
+                            .map(|s| {
+                                let mut style = s.style.add_modifier(Modifier::ITALIC);
+                                if style.fg.is_none() {
+                                    style = style.fg(Color::DarkGray);
+                                }
+                                Span::styled(s.content, style)
+                            })
+                            .collect();
+                        lines.push(Line::from(italic_spans));
                     }
-                })
-                .collect();
-            lines.push(Line::from(colored));
+                }
+                for spans in render_message(content) {
+                    let colored: Vec<Span> = spans
+                        .into_iter()
+                        .map(|s| {
+                            if s.style.fg.is_none() {
+                                Span::styled(s.content, role_color)
+                            } else {
+                                s
+                            }
+                        })
+                        .collect();
+                    lines.push(Line::from(colored));
+                }
+            }
+            crate::types::Message::ToolResult {
+                tool_call_id,
+                content,
+            } => {
+                let role_color = Color::Green;
+                lines.push(Line::from(vec![
+                    Span::styled(format!("[Tool: {}", tool_call_id), role_color),
+                    Span::raw("]"),
+                ]));
+                for spans in render_message(content) {
+                    let colored: Vec<Span> = spans
+                        .into_iter()
+                        .map(|s| {
+                            if s.style.fg.is_none() {
+                                Span::styled(s.content, role_color)
+                            } else {
+                                s
+                            }
+                        })
+                        .collect();
+                    lines.push(Line::from(colored));
+                }
+            }
         }
         lines.push(Line::from("")); // Blank line between messages
     }

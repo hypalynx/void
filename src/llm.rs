@@ -15,6 +15,7 @@ pub async fn chat_completions(
         "top_k": 20,
         "prescence_penalty": 0.0,
         "id_slot": -1,
+        "tools": crate::tool::definitions(),
     });
 
     let response = client

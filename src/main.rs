@@ -11,7 +11,8 @@ use void::input::{
     move_forward_char, move_forward_word, move_start_of_line, yank,
 };
 use void::stream::{StreamEvent, stream_response};
-use void::types::{AppState, Message};
+use void::tool;
+use void::types::{AppState, Message, ToolCall, ToolResultInfo};
 use void::ui::{draw, spinner_len};
 
 #[derive(Parser)]
@@ -31,6 +32,48 @@ async fn main() -> anyhow::Result<()> {
     execute!(io::stdout(), crossterm::event::DisableMouseCapture)?;
     ratatui::restore();
     result
+}
+
+async fn execute_tool_calls(tool_calls: Vec<ToolCall>) -> Vec<ToolResultInfo> {
+    let mut tasks = Vec::new();
+
+    for tool_call in tool_calls {
+        let task = tokio::spawn(async move {
+            let args = match serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+                &tool_call.function.arguments,
+            ) {
+                Ok(args) => args,
+                Err(_) => serde_json::Map::new(),
+            };
+
+            let tool_obj = tool::ToolCall {
+                id: tool_call.id.clone(),
+                name: tool_call.function.name.clone(),
+                args,
+            };
+
+            let result = match tool::execute(&tool_obj) {
+                Ok(output) => output,
+                Err(e) => format!("Tool execution error: {}", e),
+            };
+
+            ToolResultInfo {
+                tool_call_id: tool_call.id,
+                content: result,
+            }
+        });
+
+        tasks.push(task);
+    }
+
+    let mut results = Vec::new();
+    for task in tasks {
+        if let Ok(result) = task.await {
+            results.push(result);
+        }
+    }
+
+    results
 }
 
 async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
@@ -126,11 +169,7 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
                                 yank(&state.input, state.cursor, &state.clipboard.clone());
                         }
                         Command::SubmitInput(msg) => {
-                            state.messages.push(Message {
-                                role: "user".to_string(),
-                                content: msg,
-                                thinking: None,
-                            });
+                            state.messages.push(Message::User { content: msg });
                             state.input.clear();
                             state.cursor = 0;
                             state.waiting = true;
@@ -175,35 +214,80 @@ async fn app(terminal: &mut DefaultTerminal, port: u16) -> anyhow::Result<()> {
             match event {
                 StreamEvent::Token(token) => {
                     if state.current_stream_message_idx.is_none() {
-                        state.messages.push(Message {
-                            role: "assistant".to_string(),
+                        state.messages.push(Message::Assistant {
                             content: String::new(),
                             thinking: None,
+                            tool_calls: Vec::new(),
                         });
                         state.current_stream_message_idx = Some(state.messages.len() - 1);
                     }
                     if let Some(idx) = state.current_stream_message_idx {
-                        state.messages[idx].content.push_str(&token);
+                        if let Message::Assistant { content, .. } = &mut state.messages[idx] {
+                            content.push_str(&token);
+                        }
                     }
                 }
                 StreamEvent::Thinking(thinking) => {
                     if state.current_stream_message_idx.is_none() {
-                        state.messages.push(Message {
-                            role: "assistant".to_string(),
+                        state.messages.push(Message::Assistant {
                             content: String::new(),
                             thinking: Some(String::new()),
+                            tool_calls: Vec::new(),
                         });
                         state.current_stream_message_idx = Some(state.messages.len() - 1);
                     }
                     if let Some(idx) = state.current_stream_message_idx {
-                        if let Some(ref mut t) = state.messages[idx].thinking {
-                            t.push_str(&thinking);
+                        if let Message::Assistant { thinking: t, .. } = &mut state.messages[idx] {
+                            if let Some(thinking_text) = t {
+                                thinking_text.push_str(&thinking);
+                            }
+                        }
+                    }
+                }
+                StreamEvent::ToolCall(tool_call) => {
+                    if state.current_stream_message_idx.is_none() {
+                        state.messages.push(Message::Assistant {
+                            content: String::new(),
+                            thinking: None,
+                            tool_calls: Vec::new(),
+                        });
+                        state.current_stream_message_idx = Some(state.messages.len() - 1);
+                    }
+                    if let Some(idx) = state.current_stream_message_idx {
+                        if let Message::Assistant { tool_calls, .. } = &mut state.messages[idx] {
+                            tool_calls.push(tool_call);
                         }
                     }
                 }
                 StreamEvent::Done => {
-                    state.waiting = false;
                     state.current_stream_message_idx = None;
+
+                    if let Some(Message::Assistant { tool_calls, .. }) = state.messages.last() {
+                        if !tool_calls.is_empty() {
+                            let tool_calls = tool_calls.clone();
+                            let messages = state.messages.clone();
+                            let tx = state.tx.clone();
+
+                            tokio::spawn(async move {
+                                let results = execute_tool_calls(tool_calls).await;
+                                let mut updated_messages = messages;
+                                for result in results {
+                                    updated_messages.push(Message::ToolResult {
+                                        tool_call_id: result.tool_call_id,
+                                        content: result.content,
+                                    });
+                                }
+                                let _ = stream_response(updated_messages, tx, port).await;
+                            });
+
+                            state.waiting = true;
+                            state.spinner_idx = 0;
+                        } else {
+                            state.waiting = false;
+                        }
+                    } else {
+                        state.waiting = false;
+                    }
                 }
             }
         }
