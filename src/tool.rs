@@ -41,22 +41,34 @@ pub fn execute(tool: &ToolCall) -> anyhow::Result<ToolOutput> {
     }
 }
 
-/// Format a tool call for display (e.g., "Read filePath" instead of full JSON args)
+/// Format a tool call for display (e.g., "Read src/main.rs" instead of full JSON args)
 pub fn format_tool_call(tool_name: &str, args: &serde_json::Map<String, Value>) -> String {
     let params = match tool_name {
         "Read" => {
-            // Show filePath, optionally mention offset if present
-            if args.contains_key("offset") {
-                "filePath, offset".to_string()
+            let path = args.get("filePath").and_then(|v| v.as_str()).unwrap_or("?");
+            if let Some(offset) = args.get("offset").and_then(|v| v.as_u64()) {
+                format!("{} (offset: {})", path, offset)
             } else {
-                "filePath".to_string()
+                path.to_string()
             }
         }
-        "Glob" => "pattern".to_string(),
-        "Grep" => "pattern, files".to_string(),
-        "Bash" => "command".to_string(),
-        "Write" => "path".to_string(),
-        "Edit" => "path".to_string(),
+        "Glob" => {
+            args.get("pattern").and_then(|v| v.as_str()).unwrap_or("?").to_string()
+        }
+        "Grep" => {
+            let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("?");
+            let files = args.get("files").and_then(|v| v.as_str()).unwrap_or("?");
+            format!("{} in {}", pattern, files)
+        }
+        "Bash" => {
+            args.get("command").and_then(|v| v.as_str()).unwrap_or("?").to_string()
+        }
+        "Write" => {
+            args.get("path").and_then(|v| v.as_str()).unwrap_or("?").to_string()
+        }
+        "Edit" => {
+            args.get("path").and_then(|v| v.as_str()).unwrap_or("?").to_string()
+        }
         _ => return tool_name.to_string(),
     };
     format!("{} {}", tool_name, params)

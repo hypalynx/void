@@ -161,7 +161,13 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     frame.render_widget(input_para, inner);
 
     // Build status line with metrics on the right
-    let status_left = if state.waiting {
+    let status_left = if let Some(_) = state.last_exit_press {
+        if state.waiting {
+            "Press again to cancel".to_string()
+        } else {
+            "Press again to exit".to_string()
+        }
+    } else if state.waiting {
         let spinner_char = SPINNER_CHARS.chars().nth(state.spinner_idx).unwrap_or(' ');
         format!("{} waiting...", spinner_char)
     } else {
@@ -182,7 +188,8 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     }
     status_line.push_str(&metrics);
 
-    frame.render_widget(status_line, layout[2]);
+    let status_para = Paragraph::new(status_line).fg(Color::DarkGray);
+    frame.render_widget(status_para, layout[2]);
 
     // Calculate 2D cursor position for multiline input
     let text_before = &state.input[..state.cursor];

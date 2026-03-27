@@ -180,6 +180,8 @@ async fn app(
         input_history: Vec::new(),
         history_idx: None,
         history_draft: String::new(),
+        last_exit_press: None,
+        stream_task: None,
     };
 
     // Load input history from ~/.void/history
@@ -227,7 +229,28 @@ async fn app(
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     match handle_user_input(key, &state.input) {
-                        Command::Exit => break,
+                        Command::Exit => {
+                            let now = Instant::now();
+                            let double_press = state.last_exit_press
+                                .map(|t| now.duration_since(t) < Duration::from_secs(2))
+                                .unwrap_or(false);
+
+                            if state.waiting {
+                                if double_press {
+                                    if let Some(handle) = state.stream_task.take() {
+                                        handle.abort();
+                                    }
+                                    state.waiting = false;
+                                    state.last_exit_press = None;
+                                } else {
+                                    state.last_exit_press = Some(now);
+                                }
+                            } else if double_press {
+                                break;
+                            } else {
+                                state.last_exit_press = Some(now);
+                            }
+                        }
                         Command::InsertChar(ch) => {
                             state.input.insert(state.cursor, ch);
                             state.cursor += 1;
@@ -318,9 +341,10 @@ async fn app(
                             let api_key = state.api_key.clone();
                             let path_prefix = state.path_prefix.clone();
                             let system_prompt = state.system_prompt.clone();
-                            tokio::spawn(async move {
+                            let handle = tokio::spawn(async move {
                                 let _ = stream_response(api_log, tx, port, host, model, api_key, path_prefix, system_prompt).await;
                             });
+                            state.stream_task = Some(handle);
                         }
                         Command::ToggleToolDetail => {
                             state.show_tool_detail = !state.show_tool_detail;
@@ -395,6 +419,13 @@ async fn app(
                     state.scroll_offset = state.scroll_offset.min(max);
                 }
                 _ => {}
+            }
+        }
+
+        // Expire stale exit press warnings
+        if let Some(t) = state.last_exit_press {
+            if t.elapsed() > Duration::from_secs(2) {
+                state.last_exit_press = None;
             }
         }
 
@@ -583,9 +614,10 @@ async fn app(
                     let api_key = state.api_key.clone();
                     let path_prefix = state.path_prefix.clone();
                     let system_prompt = state.system_prompt.clone();
-                    tokio::spawn(async move {
+                    let handle = tokio::spawn(async move {
                         let _ = stream_response(api_log, tx, port, host, model, api_key, path_prefix, system_prompt).await;
                     });
+                    state.stream_task = Some(handle);
 
                     state.waiting = true;
                     state.spinner_idx = 0;

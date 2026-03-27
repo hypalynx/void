@@ -2,6 +2,7 @@ use crate::stream::StreamEvent;
 use ratatui::text::Line;
 use serde::{Deserialize, Serialize, Serializer};
 use std::sync::mpsc;
+use std::time::Instant;
 
 /// Diff line kind: context, added, or removed
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,4 +173,6 @@ pub struct AppState {
     pub input_history: Vec<String>,
     pub history_idx: Option<usize>,
     pub history_draft: String,
+    pub last_exit_press: Option<Instant>,
+    pub stream_task: Option<tokio::task::JoinHandle<()>>,
 }
