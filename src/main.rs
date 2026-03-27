@@ -31,24 +31,57 @@ struct Cli {
     api_key: Option<String>,
     #[arg(long)]
     path_prefix: Option<String>,
+    #[arg(long)]
+    profile: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // Get API key from flag or environment variable
-    let api_key = cli.api_key.or_else(|| std::env::var("VOID_API_KEY").ok());
+    // Load config file
+    let config = void::config::load();
+
+    // Determine profile name: CLI flag > default in config > "local"
+    let profile_name = cli.profile
+        .or_else(|| void::config::get_default_profile_name(&config))
+        .unwrap_or_else(|| "local".to_string());
+
+    // Load the profile
+    let profile = void::config::get_profile(&config, &profile_name)
+        .unwrap_or_default();
+
+    // Merge values: profile defaults < CLI flags override
+    let host = cli.host
+        .or_else(|| profile.host.clone())
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+
+    let port = if cli.port != 7777 {
+        cli.port
+    } else {
+        profile.port.unwrap_or(7777)
+    };
+
+    let model = cli.model.or_else(|| profile.model.clone());
+    let path_prefix = cli.path_prefix.or_else(|| profile.path_prefix.clone());
+
+    // API key: CLI flag > VOID_API_KEY env var > profile's api_key_env
+    let api_key = cli.api_key
+        .or_else(|| std::env::var("VOID_API_KEY").ok())
+        .or_else(|| {
+            profile.api_key_env.as_ref()
+                .and_then(|env_var| std::env::var(env_var).ok())
+        });
 
     let mut terminal = ratatui::init();
     execute!(io::stdout(), crossterm::event::EnableMouseCapture)?;
     let result = app(
         &mut terminal,
-        cli.port,
-        cli.host.unwrap_or_else(|| "127.0.0.1".to_string()),
-        cli.model,
+        port,
+        host,
+        model,
         api_key,
-        cli.path_prefix,
+        path_prefix,
     )
     .await;
     execute!(io::stdout(), crossterm::event::DisableMouseCapture)?;
@@ -143,9 +176,9 @@ async fn app(
         history_draft: String::new(),
     };
 
-    // Load input history from ~/.void_history
+    // Load input history from ~/.void/history
     if let Ok(home) = std::env::var("HOME") {
-        let history_path = format!("{}/.void_history", home);
+        let history_path = format!("{}/.void/history", home);
         if let Ok(contents) = std::fs::read_to_string(&history_path) {
             state.input_history = contents
                 .lines()
@@ -252,9 +285,9 @@ async fn app(
                             if !msg.is_empty() {
                                 state.input_history.push(msg.clone());
                                 state.history_idx = None;
-                                // Append to ~/.void_history
+                                // Append to ~/.void/history
                                 if let Ok(home) = std::env::var("HOME") {
-                                    let history_path = format!("{}/.void_history", home);
+                                    let history_path = format!("{}/.void/history", home);
                                     let _ = std::fs::OpenOptions::new()
                                         .create(true)
                                         .append(true)
