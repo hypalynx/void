@@ -27,8 +27,9 @@ pub async fn stream_response(
     model: Option<String>,
     api_key: Option<String>,
     path_prefix: Option<String>,
+    system_prompt: Option<String>,
 ) -> anyhow::Result<()> {
-    let response = match crate::llm::chat_completions(port, host, model, api_key, path_prefix, &messages).await {
+    let response = match crate::llm::chat_completions(port, host, model, api_key, path_prefix, system_prompt, &messages).await {
         Ok(resp) => resp,
         Err(e) => {
             let _ = tx.send(StreamEvent::Error(format!("API Error: {}", e)));

@@ -76,6 +76,9 @@ pub struct DisplayMessage {
 
 #[derive(Debug, Clone)]
 pub enum ApiMessage {
+    System {
+        content: String,
+    },
     User {
         content: String,
     },
@@ -99,6 +102,10 @@ impl Serialize for ApiMessage {
         let mut map = serializer.serialize_map(None)?;
 
         match self {
+            ApiMessage::System { content } => {
+                map.serialize_entry("role", "system")?;
+                map.serialize_entry("content", content)?;
+            }
             ApiMessage::User { content } => {
                 map.serialize_entry("role", "user")?;
                 map.serialize_entry("content", content)?;
@@ -150,6 +157,7 @@ pub struct AppState {
     pub model: Option<String>,
     pub api_key: Option<String>,
     pub path_prefix: Option<String>,
+    pub system_prompt: Option<String>,
     pub rx: mpsc::Receiver<StreamEvent>,
     pub tx: mpsc::Sender<StreamEvent>,
     pub waiting: bool,

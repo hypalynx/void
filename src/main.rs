@@ -73,6 +73,9 @@ async fn main() -> anyhow::Result<()> {
                 .and_then(|env_var| std::env::var(env_var).ok())
         });
 
+    // Load system prompt from ~/.config/void/AGENTS.md if it exists
+    let system_prompt = void::config::load_system_prompt();
+
     let mut terminal = ratatui::init();
     execute!(io::stdout(), crossterm::event::EnableMouseCapture)?;
     let result = app(
@@ -82,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
         model,
         api_key,
         path_prefix,
+        system_prompt,
     )
     .await;
     execute!(io::stdout(), crossterm::event::DisableMouseCapture)?;
@@ -144,6 +148,7 @@ async fn app(
     model: Option<String>,
     api_key: Option<String>,
     path_prefix: Option<String>,
+    system_prompt: Option<String>,
 ) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel();
 
@@ -160,6 +165,7 @@ async fn app(
         model,
         api_key,
         path_prefix,
+        system_prompt,
         rx,
         tx,
         waiting: false,
@@ -311,8 +317,9 @@ async fn app(
                             let model = state.model.clone();
                             let api_key = state.api_key.clone();
                             let path_prefix = state.path_prefix.clone();
+                            let system_prompt = state.system_prompt.clone();
                             tokio::spawn(async move {
-                                let _ = stream_response(api_log, tx, port, host, model, api_key, path_prefix).await;
+                                let _ = stream_response(api_log, tx, port, host, model, api_key, path_prefix, system_prompt).await;
                             });
                         }
                         Command::ToggleToolDetail => {
@@ -575,8 +582,9 @@ async fn app(
                     let model = state.model.clone();
                     let api_key = state.api_key.clone();
                     let path_prefix = state.path_prefix.clone();
+                    let system_prompt = state.system_prompt.clone();
                     tokio::spawn(async move {
-                        let _ = stream_response(api_log, tx, port, host, model, api_key, path_prefix).await;
+                        let _ = stream_response(api_log, tx, port, host, model, api_key, path_prefix, system_prompt).await;
                     });
 
                     state.waiting = true;

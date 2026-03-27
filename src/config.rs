@@ -49,3 +49,12 @@ pub fn get_default_profile_name(config: &Config) -> Option<String> {
         .as_ref()
         .and_then(|default| default.profile.clone())
 }
+
+pub fn load_system_prompt() -> Option<String> {
+    std::env::var("HOME")
+        .ok()
+        .and_then(|home| {
+            let path = PathBuf::from(format!("{}/.config/void/AGENTS.md", home));
+            std::fs::read_to_string(path).ok()
+        })
+}

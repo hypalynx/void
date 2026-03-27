@@ -6,6 +6,7 @@ pub async fn chat_completions(
     model: Option<String>,
     api_key: Option<String>,
     path_prefix: Option<String>,
+    system_prompt: Option<String>,
     messages: &[ApiMessage],
 ) -> anyhow::Result<reqwest::Response> {
     let client = reqwest::Client::new();
@@ -25,8 +26,17 @@ pub async fn chat_completions(
         other => other.clone(),
     }).collect();
 
+    // Prepend system message if system prompt is provided
+    let mut final_messages = Vec::new();
+    if let Some(prompt) = system_prompt {
+        final_messages.push(ApiMessage::System {
+            content: prompt,
+        });
+    }
+    final_messages.extend(filtered_messages);
+
     let mut payload = serde_json::json!({
-        "messages": filtered_messages,
+        "messages": final_messages,
         "stream": true,
         "temperature": 0.7,
         "top_p": 0.95,
