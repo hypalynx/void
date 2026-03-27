@@ -26,5 +26,12 @@ kimi:
 		--model accounts/fireworks/models/kimi-k2p5 \
 		--path-prefix /inference
 
+gemini:
+	VOID_API_KEY=$${GEMINI_API_KEY} cargo run -- \
+		--host generativelanguage.googleapis.com \
+		--port 443 \
+		--model gemini-3-flash-preview \
+		--path-prefix /v1beta/openai
+
 install:
 	cargo install --path .
