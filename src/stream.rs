@@ -9,6 +9,7 @@ pub enum StreamEvent {
     ToolCall(ToolCall),
     ToolExecuting(String),
     ToolsExecuted(Vec<ToolResultInfo>),
+    Error(String),
     Done,
 }
 
@@ -27,7 +28,14 @@ pub async fn stream_response(
     api_key: Option<String>,
     path_prefix: Option<String>,
 ) -> anyhow::Result<()> {
-    let response = crate::llm::chat_completions(port, host, model, api_key, path_prefix, &messages).await?;
+    let response = match crate::llm::chat_completions(port, host, model, api_key, path_prefix, &messages).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            let _ = tx.send(StreamEvent::Error(format!("API Error: {}", e)));
+            let _ = tx.send(StreamEvent::Done);
+            return Ok(());
+        }
+    };
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut partial_tool_calls: HashMap<String, PartialToolCall> = HashMap::new();

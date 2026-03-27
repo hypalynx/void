@@ -10,20 +10,26 @@ pub async fn chat_completions(
 ) -> anyhow::Result<reqwest::Response> {
     let client = reqwest::Client::new();
 
+    let is_local = host == "127.0.0.1" || host == "localhost";
+
     let mut payload = serde_json::json!({
         "messages": messages,
         "stream": true,
         "temperature": 0.7,
         "top_p": 0.95,
-        "top_k": 20,
-        "prescence_penalty": 0.0,
-        "id_slot": -1,
         "tools": crate::tool::definitions(),
     });
 
+    // Only include Qwen-specific parameters for local models
+    if is_local {
+        payload["top_k"] = serde_json::json!(20);
+        payload["presence_penalty"] = serde_json::json!(0.0);
+        payload["id_slot"] = serde_json::json!(-1);
+    }
+
     // Only include model if provided
-    if let Some(m) = model {
-        payload["model"] = serde_json::Value::String(m);
+    if let Some(m) = &model {
+        payload["model"] = serde_json::Value::String(m.clone());
     }
 
     // Use HTTPS for port 443, HTTP otherwise
@@ -37,6 +43,7 @@ pub async fn chat_completions(
     };
 
     let url = format!("{}://{}:{}{}", protocol, host, port, path);
+
     let mut request = client
         .post(&url)
         .header("Content-Type", "application/json");
@@ -50,6 +57,12 @@ pub async fn chat_completions(
         .body(serde_json::to_string(&payload)?)
         .send()
         .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_else(|_| "(no body)".to_string());
+        return Err(anyhow::anyhow!("HTTP {}: {}", status, body));
+    }
 
     Ok(response)
 }

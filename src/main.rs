@@ -549,6 +549,19 @@ async fn app(
                     state.waiting = true;
                     state.spinner_idx = 0;
                 }
+                StreamEvent::Error(error_msg) => {
+                    state.messages.push(DisplayMessage {
+                        role: DisplayRole::ToolActivity,
+                        content: format!("❌ API Error: {}", error_msg),
+                        thinking: None,
+                        detail: None,
+                        diff: None,
+                        lines: Vec::new(),
+                        thinking_lines: Vec::new(),
+                        detail_lines: Vec::new(),
+                    });
+                    state.waiting = false;
+                }
             }
         }
 
