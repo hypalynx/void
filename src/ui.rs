@@ -54,7 +54,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
         if let Some(_thinking) = &msg.thinking {
             let thinking_lines = if msg.thinking_lines.is_empty() {
                 // Streaming thinking — render live
-                render_message(_thinking)
+                render_message(_thinking, area_width)
                     .into_iter()
                     .map(|spans| {
                         let styled: Vec<Span> = spans
@@ -80,7 +80,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
         // Render main content
         let msg_lines = if msg.lines.is_empty() {
             // Streaming message — render live
-            render_message(&msg.content)
+            render_message(&msg.content, area_width)
                 .into_iter()
                 .map(|spans| {
                     let colored: Vec<Span> = spans
@@ -116,7 +116,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
             if let Some(detail) = &msg.detail {
                 let detail_lines = if msg.detail_lines.is_empty() {
                     // Not yet cached
-                    render_message(detail)
+                    render_message(detail, area_width)
                         .into_iter()
                         .map(|spans| Line::from(spans))
                         .collect::<Vec<_>>()

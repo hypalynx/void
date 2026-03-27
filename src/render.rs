@@ -100,7 +100,7 @@ pub fn highlight_code_block(code: &str, language: &str) -> Vec<Vec<Span<'static>
     highlighted_lines
 }
 
-pub fn render_message(text: &str) -> Vec<Vec<Span<'static>>> {
+pub fn render_message(text: &str, max_width: usize) -> Vec<Vec<Span<'static>>> {
     let mut result = Vec::new();
 
     // Find all code block ranges
@@ -152,41 +152,82 @@ pub fn render_message(text: &str) -> Vec<Vec<Span<'static>>> {
         }
     }
 
-    // Process text in segments (prose and code blocks)
+    // Find all table blocks (consecutive lines with | characters)
+    let table_blocks = find_table_blocks(text);
+
+    // Merge code blocks and table blocks, sorted by start position
+    let mut all_blocks: Vec<(usize, usize, BlockKind)> = Vec::new();
+    for block in &code_blocks {
+        all_blocks.push((block.start, block.end, BlockKind::Code));
+    }
+    for (start, end) in &table_blocks {
+        all_blocks.push((*start, *end, BlockKind::Table));
+    }
+    all_blocks.sort_by_key(|(start, _, _)| *start);
+
+    // Process text in segments (prose, code blocks, and table blocks)
     let mut pos = 0;
 
-    for block in code_blocks {
+    for (block_start, block_end, kind) in all_blocks {
+        if block_start < pos {
+            // Overlapping block, skip
+            continue;
+        }
+
         // Process prose before the block
-        if pos < block.start {
-            let prose = &text[pos..block.start];
+        if pos < block_start {
+            let prose = &text[pos..block_start];
             for line_text in prose.lines() {
                 let spans = parse_markdown_line(line_text);
                 result.push(spans);
             }
         }
 
-        // Extract language tag
-        let lang_bytes = &text.as_bytes()[block.language..block.language + block.language_len];
-        let language = std::str::from_utf8(lang_bytes).unwrap_or("").trim();
+        match kind {
+            BlockKind::Code => {
+                // Find the code block details
+                if let Some(block) = code_blocks.iter().find(|b| b.start == block_start) {
+                    // Extract language tag
+                    let lang_bytes = &text.as_bytes()[block.language..block.language + block.language_len];
+                    let language = std::str::from_utf8(lang_bytes).unwrap_or("").trim();
 
-        // Extract code block content (skip opening ``` line and closing ``` line)
-        let fence_open_end = text[block.start..]
-            .find('\n')
-            .map(|p| block.start + p + 1)
-            .unwrap_or(block.start + 3);
-        let code_content = &text[fence_open_end..block.end];
+                    // Extract code block content (skip opening ``` line and closing ``` line)
+                    let fence_open_end = text[block.start..]
+                        .find('\n')
+                        .map(|p| block.start + p + 1)
+                        .unwrap_or(block.start + 3);
+                    let code_content = &text[fence_open_end..block.end];
 
-        // Highlight code block lines
-        let highlighted_lines = highlight_code_block(code_content, language);
-        for spans in highlighted_lines {
-            result.push(spans);
+                    // Highlight code block lines
+                    let highlighted_lines = highlight_code_block(code_content, language);
+                    for spans in highlighted_lines {
+                        result.push(spans);
+                    }
+                }
+            }
+            BlockKind::Table => {
+                let table_text = &text[block_start..block_end];
+                let table_lines = render_table_block(table_text, max_width);
+                for spans in table_lines {
+                    result.push(spans);
+                }
+            }
         }
 
-        // Move past the closing fence
-        pos = block.end + 3;
+        // Move past the block
+        pos = match kind {
+            BlockKind::Code => {
+                if let Some(block) = code_blocks.iter().find(|b| b.start == block_start) {
+                    block.end + 3
+                } else {
+                    block_end
+                }
+            }
+            BlockKind::Table => block_end,
+        };
     }
 
-    // Process remaining prose after last code block
+    // Process remaining prose after last block
     if pos < text.len() {
         let prose = &text[pos..];
         for line_text in prose.lines() {
@@ -196,6 +237,297 @@ pub fn render_message(text: &str) -> Vec<Vec<Span<'static>>> {
     }
 
     result
+}
+
+#[derive(Clone, Copy)]
+enum BlockKind {
+    Code,
+    Table,
+}
+
+fn find_table_blocks(text: &str) -> Vec<(usize, usize)> {
+    let mut tables = Vec::new();
+    let lines: Vec<&str> = text.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        // Look for potential table start (line with | that isn't a code fence)
+        if lines[i].contains('|') && !lines[i].trim().starts_with("```") {
+            let table_start_line = i;
+            while i < lines.len() && lines[i].contains('|') && !lines[i].trim().starts_with("```") {
+                i += 1;
+            }
+            let table_end_line = i;
+            // Require at least 2 rows for a table
+            if table_end_line - table_start_line >= 2 {
+                // Convert line indices to byte positions
+                let mut byte_start = 0;
+                let mut byte_end = 0;
+                let mut current_line = 0;
+                let mut pos = 0;
+
+                for line in text.lines() {
+                    if current_line == table_start_line {
+                        byte_start = pos;
+                    }
+                    if current_line == table_end_line - 1 {
+                        byte_end = pos + line.len();
+                        break;
+                    }
+                    pos += line.len() + 1; // +1 for \n
+                    current_line += 1;
+                }
+
+                if byte_start < byte_end {
+                    tables.push((byte_start, byte_end));
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+
+    tables
+}
+
+fn render_table_block(table_text: &str, max_width: usize) -> Vec<Vec<Span<'static>>> {
+    let lines: Vec<&str> = table_text.lines().collect();
+
+    // Parse rows, splitting by | and trimming
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    for line in &lines {
+        let cells: Vec<String> = line
+            .split('|')
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty())
+            .collect();
+        if !cells.is_empty() {
+            rows.push(cells);
+        }
+    }
+
+    if rows.is_empty() {
+        return Vec::new();
+    }
+
+    // Find max column count
+    let col_count = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+
+    // Skip separator rows (rows that are all dashes or contain only -, :, |)
+    let data_rows: Vec<&Vec<String>> = rows
+        .iter()
+        .filter(|row| {
+            !row.iter().all(|cell| {
+                cell.chars().all(|c| c == '-' || c == ':' || c == '|' || c.is_whitespace())
+            })
+        })
+        .collect();
+
+    if data_rows.is_empty() {
+        return Vec::new();
+    }
+
+    // Border overhead: 1 (left) + 2*col_count (padding) + (col_count-1) (internal │) + 1 (right)
+    // = 1 + 2*col_count + col_count - 1 + 1 = 1 + 3*col_count
+    let border_overhead = 1 + 3 * col_count;
+    let available_width = max_width.saturating_sub(border_overhead);
+
+    // Calculate visible width (excluding markdown formatting)
+    let visible_width = |text: &str| {
+        let mut width = 0;
+        let mut chars = text.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '*' || c == '_' || c == '`' {
+                continue;
+            }
+            if c == '[' {
+                let mut link_text_len = 0;
+                while let Some(c) = chars.next() {
+                    if c == ']' { break; }
+                    if c != '*' && c != '_' && c != '`' {
+                        link_text_len += 1;
+                    }
+                }
+                while let Some(c) = chars.next() {
+                    if c == ')' { break; }
+                }
+                width += link_text_len;
+            } else {
+                width += 1;
+            }
+        }
+        width
+    };
+
+    // Calculate initial max width per column from visible content
+    let mut widths = vec![0; col_count];
+    for row in &data_rows {
+        for (i, cell) in row.iter().enumerate() {
+            widths[i] = widths[i].max(visible_width(cell));
+        }
+    }
+
+    // Ensure minimum width of 1 for all columns
+    for i in 0..col_count {
+        widths[i] = widths[i].max(1);
+    }
+
+    // Calculate total content width
+    let total_content_width: usize = widths.iter().sum();
+
+    // If too wide, scale down proportionally
+    if total_content_width > available_width && available_width > col_count * 3 {
+        let min_width = 3;
+        let extra_space = available_width.saturating_sub(col_count * min_width);
+        
+        let total_original: usize = widths.iter().sum();
+        if total_original > 0 {
+            for i in 0..col_count {
+                let proportion = widths[i] as f64 / total_original as f64;
+                let scaled = (extra_space as f64 * proportion) as usize + min_width;
+                widths[i] = scaled.max(min_width).min(available_width);
+            }
+        }
+    } else if total_content_width > available_width {
+        let w = available_width / col_count;
+        for i in 0..col_count {
+            widths[i] = w.max(1);
+        }
+    }
+
+    // Build result as flattened lines
+    let mut result: Vec<Vec<Span<'static>>> = Vec::new();
+    
+    // Top border
+    let top_border = {
+        let parts: Vec<String> = (0..col_count)
+            .map(|i| "─".repeat(widths[i] + 2))
+            .collect();
+        let border = format!("╭{}╮", parts.join("┬"));
+        vec![Span::styled(border, Style::default().fg(Color::DarkGray))]
+    };
+    result.push(top_border);
+
+    // Data rows
+    for row in &data_rows {
+        let cell_spans: Vec<Vec<Vec<Span<'static>>>> = (0..col_count)
+            .map(|i| {
+                let cell = row.get(i).map(|s| s.as_str()).unwrap_or("");
+                let spans = parse_markdown_line(cell);
+                wrap_spans(spans, widths[i])
+            })
+            .collect();
+
+        let max_lines = cell_spans.iter().map(|c| c.len()).max().unwrap_or(1);
+        
+        for line_idx in 0..max_lines {
+            let mut line_spans: Vec<Span<'static>> = Vec::new();
+            
+            line_spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+            
+            for i in 0..col_count {
+                let cell_content = cell_spans.get(i)
+                    .and_then(|lines| lines.get(line_idx))
+                    .cloned()
+                    .unwrap_or_else(|| vec![Span::raw(" ")]);
+                
+                let visible_len: usize = cell_content.iter().map(|s| s.content.chars().count()).sum();
+                let padding = widths[i].saturating_sub(visible_len);
+                
+                line_spans.push(Span::raw(" "));
+                line_spans.extend(cell_content);
+                if padding > 0 {
+                    line_spans.push(Span::raw(" ".repeat(padding)));
+                }
+                line_spans.push(Span::raw(" "));
+                line_spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+            }
+            
+            result.push(line_spans);
+        }
+    }
+
+    // Bottom border
+    let bottom_border = {
+        let parts: Vec<String> = (0..col_count)
+            .map(|i| "─".repeat(widths[i] + 2))
+            .collect();
+        let border = format!("╰{}╯", parts.join("┴"));
+        vec![Span::styled(border, Style::default().fg(Color::DarkGray))]
+    };
+    result.push(bottom_border);
+
+    result
+}
+
+fn wrap_spans(spans: Vec<Span<'static>>, max_width: usize) -> Vec<Vec<Span<'static>>> {
+    let effective_width = max_width.max(1);
+    
+    if spans.is_empty() {
+        return vec![vec![Span::raw(" ")]];
+    }
+    
+    let mut lines: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut current_line: Vec<Span<'static>> = Vec::new();
+    let mut current_width = 0;
+    
+    let mut words: Vec<(String, Style)> = Vec::new();
+    for span in spans {
+        let text = &span.content;
+        let style = span.style;
+        for word in text.split_whitespace() {
+            words.push((word.to_string(), style));
+        }
+    }
+    
+    for (word, style) in words {
+        let word_len = word.chars().count();
+        
+        if current_line.is_empty() {
+            if word_len > effective_width {
+                for chunk in word.chars().collect::<Vec<_>>().chunks(effective_width) {
+                    let chunk_str: String = chunk.iter().collect();
+                    lines.push(vec![Span::styled(chunk_str, style)]);
+                }
+            } else {
+                current_line.push(Span::styled(word, style));
+                current_width = word_len;
+            }
+        } else if current_width + 1 + word_len <= effective_width {
+            current_line.push(Span::styled(" ".to_string(), style));
+            current_line.push(Span::styled(word, style));
+            current_width += 1 + word_len;
+        } else {
+            lines.push(current_line);
+            current_line = Vec::new();
+            
+            if word_len > effective_width {
+                for chunk in word.chars().collect::<Vec<_>>().chunks(effective_width) {
+                    let chunk_str: String = chunk.iter().collect();
+                    if current_line.is_empty() {
+                        current_line.push(Span::styled(chunk_str, style));
+                    } else {
+                        lines.push(current_line);
+                        current_line = vec![Span::styled(chunk_str, style)];
+                    }
+                }
+                current_width = current_line.iter().map(|s| s.content.chars().count()).sum();
+            } else {
+                current_line.push(Span::styled(word, style));
+                current_width = word_len;
+            }
+        }
+    }
+    
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    
+    if lines.is_empty() {
+        lines.push(vec![Span::raw(" ")]);
+    }
+    
+    lines
 }
 
 /// Render a file diff with line numbers, +/- markers, and syntax highlighting

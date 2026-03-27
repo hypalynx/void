@@ -48,18 +48,11 @@ api_key_env = "FIREWORKS_API_KEY"
 
 ## TODO
 
-- add default AGENTS.md and ability to pass in your own.
-- switching URLs/models (and make it configurable?) and test out
-  GLM 5 + Kimi K2
-- Ctrl + J for input (newline) and expanding input box, also
-  up/down arrow to move up/down input BUT at top/bottom instead
-  goes up/down user input history.
+- for super long messages the render time is like 130ms / 8 fps,
+  I think we still need to render/show only what is visible on
+  the screen where I think we currently include everything from
+  the messages data structure
 - parse/render tables!
-- Esc/Ctrl + C should warn if LLM is responding and pressing
-  again should close the connection/stop receiving the request..
-  if no LLM responding then exits as usual.
-- allow config of LLMs/urls/api keys etc + switching
-- draw just the lines that can be seen to keep consistent 60 fps
 
 ---
 

@@ -521,14 +521,15 @@ async fn app(
                     if let Some(msg) = state.messages.last_mut() {
                         if msg.role == DisplayRole::Assistant {
                             if msg.lines.is_empty() {
-                                msg.lines = render_message(&msg.content)
+                                // Use default width 100 for caching; ui.rs will re-render with actual width
+                                msg.lines = render_message(&msg.content, 100)
                                     .into_iter()
                                     .map(|spans| Line::from(spans))
                                     .collect();
                             }
                             if msg.thinking_lines.is_empty() {
                                 if let Some(thinking) = &msg.thinking {
-                                    msg.thinking_lines = render_message(thinking)
+                                    msg.thinking_lines = render_message(thinking, 100)
                                         .into_iter()
                                         .map(|spans| {
                                             let styled: Vec<Span> = spans
