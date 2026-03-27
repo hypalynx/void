@@ -12,8 +12,21 @@ pub async fn chat_completions(
 
     let is_local = host == "127.0.0.1" || host == "localhost";
 
+    // Filter out thinking from all messages - models generate their own thinking,
+    // we don't send back the thinking they generated
+    let filtered_messages: Vec<ApiMessage> = messages.iter().map(|msg| match msg {
+        ApiMessage::Assistant { content, thinking: _, tool_calls } => {
+            ApiMessage::Assistant {
+                content: content.clone(),
+                thinking: None,
+                tool_calls: tool_calls.clone(),
+            }
+        }
+        other => other.clone(),
+    }).collect();
+
     let mut payload = serde_json::json!({
-        "messages": messages,
+        "messages": filtered_messages,
         "stream": true,
         "temperature": 0.7,
         "top_p": 0.95,
